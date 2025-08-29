@@ -8,4 +8,4 @@ pluginManagement {
     }
 }
 
-//include("test")
+include("test")
