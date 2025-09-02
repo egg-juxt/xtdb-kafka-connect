@@ -22,6 +22,7 @@
   (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.0.0")
     (.withEnv "XTDB_LOGGING_LEVEL" "debug")
     (.withCommand ^"[Ljava.lang.String;" (into-array ^String ["--playground"]))
+    (.withNetwork Network/SHARED)
     (.withExposedPorts (into-array [(int 5432)]))))
     ;(.withReuse true)))
 
@@ -163,19 +164,27 @@
   (let [schema-registry (::schema-registry *containers*)]
     (str "http://" (-> schema-registry .getNetworkAliases first) ":8081")))
 
+(defn xtdb-jdbc-url-for-containers []
+  (str "jdbc:xtdb://"
+       (-> *containers* ::xtdb .getNetworkAliases first)
+       ":5432/" *xtdb-db*))
+
 (defn with-connector [conf]
   (http/post (str (connect-api-url) "/connectors")
     {:body (json/write-value-as-string
              {:name (:topics conf)
               :config (merge {:tasks.max "1"
                               :connector.class "xtdb.kafka.connect.XtdbSinkConnector"
-                              :connection.url (str "jdbc:xtdb://host.testcontainers.internal:5432/" *xtdb-db*)}
+                              :connection.url (xtdb-jdbc-url-for-containers)}
                              conf)})
      :content-type :json
      :accept :json})
   (reify AutoCloseable
     (close [_]
       (http/delete (str (connect-api-url) "/connectors/" (:topics conf))))))
+
+(comment
+  (-> *containers* ::xtdb .getNetworkAliases first))
 
 (defn kafka-endpoint-on-host []
   (str "localhost:" (.getMappedPort (::kafka *containers*) 9092)))

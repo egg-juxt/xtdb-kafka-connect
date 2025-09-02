@@ -63,7 +63,7 @@
   (fixture/with-connector
     (merge example-conf
            (when (:connection.url example-conf)
-             {:connection.url (str "jdbc:xtdb://host.testcontainers.internal:5439/" *xtdb-db*)})
+             {:connection.url (fixture/xtdb-jdbc-url-for-containers)})
            (when (:value.converter.schema.registry.url example-conf)
              {:value.converter.schema.registry.url (fixture/schema-registry-base-url-for-containers)}))))
 

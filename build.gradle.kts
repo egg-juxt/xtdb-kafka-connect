@@ -22,6 +22,7 @@ repositories {
     maven {
         name = "clojars"
         url = uri("https://repo.clojars.org/")
+        maven { name = "confluent"; url = uri("https://packages.confluent.io/maven/") }
     }
 }
 
@@ -53,6 +54,9 @@ dependencies {
     testRuntimeOnly("org.apache.logging.log4j", "log4j-slf4j2-impl", "2.21.1")
 
     testImplementation("org.testcontainers", "testcontainers", "1.21.3")
+    testImplementation("metosin", "jsonista", "0.3.3")
+    testImplementation("io.confluent", "kafka-json-schema-serializer", "7.6.6")
+    testImplementation("io.confluent", "kafka-avro-serializer", "7.6.6")
 }
 
 tasks.test {
