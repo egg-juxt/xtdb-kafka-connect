@@ -13,19 +13,17 @@
     (.withReuse true)))
 
 (defn with-container [f]
-  (println "with-container")
   (binding [*container* (doto xtdb-container-conf
                           (.start))]
     (try
       (f)
       (finally
-        #_(.close *container*)))))
+        (.close *container*)))))
 
 (def ^:dynamic *db-name*)
 (def ^:dynamic *conn*)
 
 (defn with-conn [f]
-  (println "container" *container*)
   (binding [*db-name* (random-uuid)]
     (with-open [conn (jdbc/get-connection (str "jdbc:xtdb://localhost:"
                                                (.getMappedPort *container* 5432)
