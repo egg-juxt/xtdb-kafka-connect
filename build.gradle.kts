@@ -15,7 +15,7 @@ tasks.checkClojure.get().classpath.from(kotlinClassesDir)
 tasks.clojureRepl.get().classpath.from(kotlinClassesDir)
 
 group = "com.xtdb"
-version = "1.0-SNAPSHOT"
+version = "2.0.0-a01"
 
 repositories {
     mavenCentral()
@@ -62,4 +62,47 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     include("xtdb/kafka/**")
+}
+
+
+// Build an Component Hub archive:
+// https://docs.confluent.io/platform/current/connect/confluent-hub/component-archive.html
+//
+// The official Confluent JDBC Connector can serve as an example:
+// https://www.confluent.io/hub/confluentinc/kafka-connect-jdbc
+
+val componentOwner = "xtdb"
+val componentName = "kafka-connect-xtdb"
+
+tasks.register<Copy>("manifest") {
+    group = "component hub"
+
+    from("dist/manifest.json")
+
+    expand(
+        "owner" to componentOwner,
+        "name" to componentName,
+        "version" to version
+    )  { escapeBackslash = true }
+
+    into(layout.buildDirectory.dir("tmp/manifest"))
+}
+
+tasks.register<Zip>("archive") {
+    group = "component hub"
+
+    destinationDirectory = layout.buildDirectory.dir("dist")
+    archiveFileName = "$componentOwner-$componentName-$version.zip"
+
+    into(archiveFileName) {
+        into("lib") {
+            from(tasks.jar)
+            from(configurations.runtimeClasspath)
+        }
+
+        from(layout.projectDirectory.dir("dist")) {
+            exclude("manifest.json")
+        }
+        from(tasks.getByName("manifest"))
+    }
 }
