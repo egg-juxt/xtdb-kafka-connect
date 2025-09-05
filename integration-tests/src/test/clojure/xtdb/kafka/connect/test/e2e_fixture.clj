@@ -42,7 +42,7 @@
   (.close container))
 
 (defmethod ig/init-key ::connector-jar-file [_ _]
-  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-1.0-SNAPSHOT-all.jar")]
+  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a01-all.jar")]
     (if (.exists jar-file)
       jar-file
       (throw (IllegalStateException. (str "Not found: " jar-file))))))
@@ -79,6 +79,7 @@
                                :CONNECT_STATUS_STORAGE_REPLICATION_FACTOR 1
                                :CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR 1
 
+                               :CONNECT_PLUGIN_DISCOVERY "service_load"
                                :CONNECT_PLUGIN_PATH (str "/usr/share/xtdb/kafka/connect/lib/"
                                                          (.getName connector-jar-file))
 
