@@ -1,3 +1,7 @@
+:toc:
+:toc-levels: 4
+:toc-placement!:
+
 = XTDB Plugin for Kafka Connect
 
 This plugin for Kafka Connect allows for ingestion of data into XTDB.
@@ -9,6 +13,8 @@ A Sink Connector that inserts record data into XTDB tables.
 
 SchemaDrivenXtdbEncoder::
 A Kafka Connect Transformation that you can use to transform your record data to appropriate XTDB data types, which are inferred from the record schema.
+
+toc::[]
 
 == User Guide
 
@@ -111,7 +117,7 @@ Let's say our readings are a bit more complicated:
 
 We have an additional `span` field, that we'd want to store using the `interval` type in XTDB. Furthermore, we want to store `measurement` as a 32-bit float, rather than 64-bit float (commonly known as "double").
 
-Configure your connector to apply the Xtdb encoder transform:
+Configure your connector to apply the XTDB encoder transform:
 
 [source,json]
 ----
@@ -123,7 +129,7 @@ Configure your connector to apply the Xtdb encoder transform:
 
 Depending on the kind of schema you want to use (JSON Schema / Avro Schema / Connect Schema) choose one of the following sections:
 
-==== Using JSON Schema
+=== Using JSON Schema
 
 Define your schema as follows:
 
@@ -160,7 +166,7 @@ For the above to work, you will need to configure your connector's value convert
 }
 ----
 
-==== Using Avro Schema
+=== Using Avro Schema
 
 Define your schema as follows:
 
@@ -200,7 +206,7 @@ For the above to work, you will need to configure your connector's value convert
 }
 ----
 
-==== Using an in-band Connect Schema
+=== Using an in-band Connect Schema
 
 Kafka Connect offers the possibility of sending your data payload and its corresponding schema together in your record value.
 
