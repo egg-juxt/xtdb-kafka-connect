@@ -15,7 +15,7 @@ tasks.checkClojure.get().classpath.from(kotlinClassesDir)
 tasks.clojureRepl.get().classpath.from(kotlinClassesDir)
 
 group = "com.xtdb"
-version = "2.0.0-a01"
+version = "2.0.0-a03"
 
 repositories {
     mavenCentral()
@@ -29,7 +29,7 @@ repositories {
 java {
     toolchain {
         // Java 17 is the minimum version for dev.clojurephant:jovial from maven!
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(11)
     }
 }
 
@@ -92,9 +92,10 @@ tasks.register<Zip>("archive") {
     group = "component hub"
 
     destinationDirectory = layout.buildDirectory.dir("dist")
-    archiveFileName = "$componentOwner-$componentName-$version.zip"
+    val archiveName = "$componentOwner-$componentName-$version"
+    archiveFileName = "$archiveName.zip"
 
-    into(archiveFileName) {
+    into(archiveName) {
         into("lib") {
             from(tasks.jar)
             from(configurations.runtimeClasspath)

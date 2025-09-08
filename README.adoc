@@ -310,6 +310,15 @@ Supported `xtdb.type` values are:
 SchemaDrivenXtdbEncoder transforms a Struct record into a value of type Map, and dismisses the record value schema, as the value no longer complies with it.
 ====
 
+=== Logging
+
+The XTDB Kakfa Connector uses SLF4J for logging. All its logging is confined to a parent logger `xtdb.kafka.connect`. DEBUG-level logging can provide useful troubleshooting info.
+
+[WARNING]
+====
+The TRACE level can be enabled for further detail, but beware that it will output record data to the logs.
+====
+
 == Development
 
 Gradle tasks for:

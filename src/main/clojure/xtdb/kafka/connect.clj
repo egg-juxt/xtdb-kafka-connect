@@ -30,7 +30,7 @@
 
 (defn- struct->edn [^Struct s]
   (let [output-map (get-struct-contents s)]
-    (log/debug "map val: " output-map)
+    (log/trace "map val: " output-map)
     output-map))
 
 (defn- record->edn [^SinkRecord record]
@@ -102,7 +102,7 @@
     (str/replace table-name-format "${topic}" topic)))
 
 (defn transform-sink-record [^XtdbSinkConfig conf, ^SinkRecord record]
-  (log/debug "sink record:" record)
+  (log/trace "sink record:" record)
   (let [table (table-name conf record)]
     (doto (cond
             (not (tombstone? record))
@@ -117,10 +117,11 @@
 
             :else (throw (IllegalArgumentException. (str "Unsupported tombstone mode: " record))))
 
-      (->> (log/debug "tx op:")))))
+      (->> (log/trace "tx op:")))))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [conn props records]
   (jdbc/with-transaction [tx conn]
     (doseq [record records]
-      (jdbc/execute! tx (transform-sink-record props record)))))
+      (jdbc/execute! tx (transform-sink-record props record))))
+  (log/debug "submitted record batch of size" (count records)))

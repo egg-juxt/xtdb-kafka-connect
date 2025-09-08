@@ -33,7 +33,7 @@
                    :my_timestamptz "2020-01-01T00:00:00Z"
                    :_valid_from "2020-01-02T00:00:00Z"}}))
 
-    (Thread/sleep 3000)
+    (Thread/sleep 10000)
 
     (is (= (xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL")
            [{:xt/id "my_id"

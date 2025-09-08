@@ -12,7 +12,6 @@
            (java.util Map)
            (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
            (org.apache.kafka.common.serialization StringSerializer)
-           (org.testcontainers Testcontainers)
            (org.testcontainers.containers BindMode Container GenericContainer Network)
            (org.testcontainers.containers.wait.strategy Wait)
            (org.testcontainers.kafka ConfluentKafkaContainer)
@@ -42,7 +41,7 @@
   (.close container))
 
 (defmethod ig/init-key ::connector-jar-file [_ _]
-  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a01-all.jar")]
+  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a03-all.jar")]
     (if (.exists jar-file)
       jar-file
       (throw (IllegalStateException. (str "Not found: " jar-file))))))
@@ -56,14 +55,13 @@
       (reduce-kv c m)))
 
 (defmethod ig/init-key ::connect [_ {:keys [kafka ^File connector-jar-file]}]
-  (let [container (doto (GenericContainer. (DockerImageName/parse "confluentinc/cp-kafka-connect:7.9.2"))
+  (let [plugin-path "/usr/local/share/xtdb-plugin"
+        container (doto (GenericContainer. (DockerImageName/parse "confluentinc/cp-kafka-connect:7.9.2"))
                     (.dependsOn [kafka])
                     (.withNetwork (.getNetwork kafka))
                     (.withExposedPorts (into-array [(int 8083)]))
                     (.waitingFor (Wait/forHttp "/connectors"))
-                    (.withFileSystemBind (-> connector-jar-file .getParent)
-                                         "/usr/share/xtdb/kafka/connect/lib"
-                                         BindMode/READ_ONLY)
+                    (.withFileSystemBind (.getParent connector-jar-file) plugin-path BindMode/READ_ONLY)
                     (with-env {:CONNECT_LOG4J_LOGGERS "xtdb.kafka=DEBUG"
 
                                :CONNECT_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
@@ -80,8 +78,7 @@
                                :CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR 1
 
                                :CONNECT_PLUGIN_DISCOVERY "service_load"
-                               :CONNECT_PLUGIN_PATH (str "/usr/share/xtdb/kafka/connect/lib/"
-                                                         (.getName connector-jar-file))
+                               :CONNECT_PLUGIN_PATH (str plugin-path "/" (.getName connector-jar-file))
 
                                :CONNECT_KEY_CONVERTER "org.apache.kafka.connect.storage.StringConverter"
                                :CONNECT_VALUE_CONVERTER "org.apache.kafka.connect.json.JsonConverter"
@@ -126,10 +123,18 @@
 
 (defn run-permanently []
   "Manually starts the fixture until manually stopped, for faster testing at dev-time."
-  (alter-var-root #'*containers* (fn [prev]
-                                   (if prev
-                                     prev
-                                     (ig/init conf)))))
+  (let [init-exc (atom nil)]
+    (alter-var-root #'*containers* (fn [prev]
+                                     (or prev
+                                         (try
+                                           (ig/init conf)
+                                           (catch Exception e
+                                             (if-let [partial-system (-> e ex-data :system)]
+                                               (do
+                                                 (reset! init-exc e)
+                                                 partial-system)
+                                               (throw e)))))))
+    (some-> @init-exc throw)))
 
 (defn stop-permanently []
   "Manually stops the fixture."
