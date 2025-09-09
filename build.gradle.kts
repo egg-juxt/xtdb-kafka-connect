@@ -77,12 +77,17 @@ val componentName = "kafka-connect-xtdb"
 tasks.register<Copy>("manifest") {
     group = "component hub"
 
-    from("dist/manifest.json")
+    from("src/dist/manifest.json")
 
+    inputs.property("componentOwner", componentOwner)
+    inputs.property("componentName", componentName)
+    inputs.property("componentVersion", project.version.toString())
+
+    inputs.properties["componentOwener"]
     expand(
-        "owner" to componentOwner,
-        "name" to componentName,
-        "version" to version
+        "owner" to inputs.properties["componentOwner"],
+        "name" to inputs.properties["componentName"],
+        "version" to inputs.properties["componentVersion"]
     )  { escapeBackslash = true }
 
     into(layout.buildDirectory.dir("tmp/manifest"))
@@ -101,7 +106,7 @@ tasks.register<Zip>("archive") {
             from(configurations.runtimeClasspath)
         }
 
-        from(layout.projectDirectory.dir("dist")) {
+        from(layout.projectDirectory.dir("src/dist")) {
             exclude("manifest.json")
         }
         from(tasks.getByName("manifest"))

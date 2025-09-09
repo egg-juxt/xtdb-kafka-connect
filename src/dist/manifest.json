@@ -1,0 +1,36 @@
+{
+  "name" : "${name}",
+  "version" : "${version}",
+  "title" : "Kafka Connect XTDB",
+  "description" : "Sink connector that allows you to ingest data from Kafka into XTDB.\n\nA transform is provided for specifying XTDB data types for the columns of ingested records, based on the Kafka record schema.",
+  "logo" : "assets/xtdb-logo-text.svg",
+  "documentation_url" : "https://github.com/egg-juxt/xtdb-kafka-connect/blob/main/README.adoc",
+  "source_url" : "https://github.com/egg-juxt/xtdb-kafka-connect",
+  "tags" : ["xtdb", "dbms", "db", "sql", "database"],
+
+  "component_types" : ["sink", "transform"],
+  "features" : {
+    "kafka_connect_api" : true,
+    "single_message_transforms" : true,
+    "supported_encodings": ["any"],
+    "delivery_guarantee": ["exactly_once"]
+  },
+
+  "owner" : {
+    "username" : "${owner}",
+    "type" : "organization",
+    "name" : "XTDB",
+    "url" : "https://xtdb.com",
+    "logo" : "assets/xtdb-logo-text.svg"
+  },
+  "support" : {
+    "summary" : "XTDB is distributed as warranty free open source software. Official support for use of XTDB with Kafka Connect is available from Grid Dynamics Holdings, Inc." ,
+    "url" : "https://xtdb.com",
+    "logo" : "assets/xtdb-logo-text.svg",
+    "provider_name" : "Grid Dynamics Holdings, Inc."
+  },
+  "license" : [{
+    "name" : "MPL-2.0 license",
+    "url" : "https://github.com/xtdb/xtdb?tab=MPL-2.0-1-ov-file#readme"
+  }]
+}
