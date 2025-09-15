@@ -41,7 +41,7 @@
   (.close container))
 
 (defmethod ig/init-key ::connector-jar-file [_ _]
-  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a03-all.jar")]
+  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a04-all.jar")]
     (if (.exists jar-file)
       jar-file
       (throw (IllegalStateException. (str "Not found: " jar-file))))))
@@ -56,7 +56,7 @@
 
 (defmethod ig/init-key ::connect [_ {:keys [kafka ^File connector-jar-file]}]
   (let [plugin-path "/usr/local/share/xtdb-plugin"
-        container (doto (GenericContainer. (DockerImageName/parse "confluentinc/cp-kafka-connect:7.9.2"))
+        container (doto (GenericContainer. (DockerImageName/parse "confluentinc/cp-kafka-connect:8.0.0"))
                     (.dependsOn [kafka])
                     (.withNetwork (.getNetwork kafka))
                     (.withExposedPorts (into-array [(int 8083)]))

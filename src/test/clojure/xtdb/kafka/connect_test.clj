@@ -10,7 +10,7 @@
            (xtdb.kafka.connect XtdbSinkTask)))
 
 (use-fixtures :once xtdb/with-container)
-(use-fixtures :each xtdb/with-xtdb)
+(use-fixtures :each xtdb/with-conn)
 
 (deftest id_mode-option
   (let [sink (fn [conf record]

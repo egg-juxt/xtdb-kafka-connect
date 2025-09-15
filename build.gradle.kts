@@ -15,7 +15,7 @@ tasks.checkClojure.get().classpath.from(kotlinClassesDir)
 tasks.clojureRepl.get().classpath.from(kotlinClassesDir)
 
 group = "com.xtdb"
-version = "2.0.0-a03"
+version = "2.0.0-a04"
 
 repositories {
     mavenCentral()
@@ -29,7 +29,7 @@ repositories {
 java {
     toolchain {
         // Java 17 is the minimum version for dev.clojurephant:jovial from maven!
-        languageVersion = JavaLanguageVersion.of(11)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -38,15 +38,8 @@ dependencies {
     implementation("org.clojure", "tools.logging", "1.3.0")
     implementation("com.github.seancorfield", "next.jdbc", "1.3.1048")
     implementation("cheshire", "cheshire", "5.13.0")
+    implementation("com.xtdb", "xtdb-api", "2.0.0")
     implementation("com.zaxxer", "HikariCP", "7.0.2")
-
-    // xtdb-api compiled for Java 11, and its dependencies
-    implementation(files("libs/xtdb-api-2.0.0-SNAPSHOT.jar"))
-    implementation("com.cognitect", "transit-clj", "1.0.329")
-    implementation("org.apache.arrow", "arrow-vector", "18.3.0")
-    implementation("org.jetbrains.kotlinx", "kotlinx-serialization-json", "1.8.1")
-    implementation("org.postgresql", "postgresql", "42.7.5")
-    implementation("com.github.ben-manes.caffeine", "caffeine", "3.1.8")
 
     compileOnly("org.apache.kafka",  "connect-api", "3.9.1")
     testImplementation("org.apache.kafka",  "connect-api", "3.9.1")
