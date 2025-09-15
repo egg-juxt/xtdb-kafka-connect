@@ -38,6 +38,7 @@ dependencies {
     implementation("org.clojure", "tools.logging", "1.3.0")
     implementation("com.github.seancorfield", "next.jdbc", "1.3.1048")
     implementation("cheshire", "cheshire", "5.13.0")
+    implementation("com.zaxxer", "HikariCP", "7.0.2")
 
     // xtdb-api compiled for Java 11, and its dependencies
     implementation(files("libs/xtdb-api-2.0.0-SNAPSHOT.jar"))
@@ -52,6 +53,7 @@ dependencies {
 
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
     testRuntimeOnly("org.apache.logging.log4j", "log4j-slf4j2-impl", "2.21.1")
+    testImplementation("org.slf4j", "jul-to-slf4j", "2.0.17")
 
     testImplementation("org.testcontainers", "testcontainers", "1.21.3")
     testImplementation("metosin", "jsonista", "0.3.3")
@@ -60,7 +62,9 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("manual")
+    }
     include("xtdb/kafka/**")
 }
 

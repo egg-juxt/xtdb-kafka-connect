@@ -1,8 +1,11 @@
 (ns xtdb.test.xtdb-fixture
-  (:require [next.jdbc :as jdbc])
+  (:require [clojure.tools.logging :as log]
+            [next.jdbc :as jdbc])
   (:import (org.testcontainers.containers GenericContainer)))
 
 (def ^:dynamic *container*)
+
+(def reuse true)
 
 (defonce ^GenericContainer xtdb-container-conf
   (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.0.0")
@@ -10,7 +13,7 @@
     (.withCommand ^"[Ljava.lang.String;" (into-array ^String ["--playground"]))
     (.withExposedPorts (into-array [(int 5432)]))
     ;(.withStartupTimeout ...)
-    (.withReuse true)))
+    (.withReuse reuse)))
 
 (defn with-container [f]
   (binding [*container* (doto xtdb-container-conf
@@ -18,15 +21,23 @@
     (try
       (f)
       (finally
-        (.close *container*)))))
+        (when-not reuse
+          (.close *container*))))))
 
 (def ^:dynamic *db-name*)
+(def ^:dynamic *jdbc-url*)
 (def ^:dynamic *conn*)
 
-(defn with-conn [f]
+(defn with-xtdb [f]
   (binding [*db-name* (random-uuid)]
-    (with-open [conn (jdbc/get-connection (str "jdbc:xtdb://localhost:"
-                                               (.getMappedPort *container* 5432)
-                                               "/" *db-name*))]
-      (binding [*conn* conn]
-        (f)))))
+    (binding [*jdbc-url* (str "jdbc:xtdb://localhost:"
+                              (.getMappedPort *container* 5432)
+                              "/" *db-name*)]
+      (log/debug "JDBC URL:" *jdbc-url*)
+      (f))))
+
+(defn with-conn [f]
+  (with-xtdb
+    #(with-open [conn (jdbc/get-connection *jdbc-url*)]
+       (binding [*conn* conn]
+         (f)))))

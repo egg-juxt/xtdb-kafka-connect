@@ -2,12 +2,16 @@ package xtdb.kafka.connect
 
 import clojure.java.api.Clojure
 import clojure.lang.IFn
+import com.zaxxer.hikari.HikariDataSource
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.connect.sink.SinkRecord
 import org.apache.kafka.connect.sink.SinkTask
+import org.slf4j.LoggerFactory
 
-class XtdbSinkTask : SinkTask() {
+private val LOGGER = LoggerFactory.getLogger(XtdbSinkTask::class.java)
+
+class XtdbSinkTask : SinkTask(), AutoCloseable {
     companion object {
         private val submitSinkRecords: IFn
 
@@ -18,13 +22,30 @@ class XtdbSinkTask : SinkTask() {
     }
 
     private lateinit var config: XtdbSinkConfig
+    private lateinit var dataSource: HikariDataSource;
 
     override fun start(props: Map<String, String>) {
         config = XtdbSinkConfig.parse(props)
+
+        dataSource = HikariDataSource().apply {
+            jdbcUrl = config.connectionUrl
+            poolName = "XtdbSinkTask-single-connection"
+            maximumPoolSize = 1
+            minimumIdle = 0
+            idleTimeout = 10000
+        };
+
+        try {
+            dataSource.getConnection().use {
+                LOGGER.info("XTDB connection check succeeded")
+            }
+        } catch (e: Exception) {
+            LOGGER.warn("XTDB connection check failed")
+        }
     }
 
     override fun put(sinkRecords: Collection<SinkRecord>) {
-        submitSinkRecords(config.connectionUrl, config, sinkRecords)
+        submitSinkRecords(dataSource, config, sinkRecords)
     }
 
     override fun version(): String = XtdbSinkConnector().version()
@@ -33,5 +54,10 @@ class XtdbSinkTask : SinkTask() {
     }
 
     override fun stop() {
+        dataSource.close()
+    }
+
+    override fun close() {
+        stop()
     }
 }

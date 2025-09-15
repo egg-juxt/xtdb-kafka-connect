@@ -1,23 +1,25 @@
 (ns xtdb.kafka.connect-test
   (:require [clojure.test :refer :all]
+            [clojure.tools.logging :as log]
+            [next.jdbc :as jdbc]
             [xtdb.api :as xt]
-            [xtdb.kafka.connect :as kconn]
             [xtdb.kafka.connect.test.util :refer [->sink-record ->struct]]
             [xtdb.test.xtdb-fixture :as xtdb])
-  (:import (org.apache.kafka.connect.data Schema SchemaBuilder)
-           (xtdb.kafka.connect XtdbSinkConfig)))
+  (:import (com.zaxxer.hikari HikariDataSource)
+           (org.apache.kafka.connect.data Schema SchemaBuilder)
+           (xtdb.kafka.connect XtdbSinkTask)))
 
 (use-fixtures :once xtdb/with-container)
-(use-fixtures :each xtdb/with-conn)
+(use-fixtures :each xtdb/with-xtdb)
 
 (deftest id_mode-option
   (let [sink (fn [conf record]
-               (kconn/submit-sink-records xtdb/*conn*
-                 (XtdbSinkConfig/parse (-> conf
-                                           (merge {:connection.url "url"})
-                                           (update-keys name)))
-                 [(->sink-record (-> record
-                                     (merge {:topic "foo"})))]))
+               (with-open [sink-task (doto (XtdbSinkTask.)
+                                       (.start (-> conf
+                                                 (merge {:connection.url xtdb/*jdbc-url*})
+                                                 (update-keys name))))]
+                 (.put sink-task [(->sink-record (-> record
+                                                     (merge {:topic "foo"})))])))
         query-foo #(first (xt/q xtdb/*conn* "SELECT * FROM foo"))]
 
     (sink {:id.mode "record_key"} {:key-value 1
@@ -35,3 +37,42 @@
     (sink {} {:key-value nil
               :value-value {:_id 1 :v "v"}})
     (is (= (query-foo) {:xt/id 1, :v "v"}))))
+
+(deftest ^:manual connection-reuse
+  (with-open [sink-task (doto (XtdbSinkTask.)
+                          (.start {"connection.url" xtdb/*jdbc-url*}))]
+    (let [sink (fn [record]
+                 (.put sink-task [(->sink-record (-> record
+                                                   (merge {:topic "foo"})))]))
+          schema (-> (SchemaBuilder/struct)
+                   (.field "_id" Schema/INT64_SCHEMA))]
+      (log/info "--------------- Before first sink...")
+      (sink {:key-value nil
+             :key-schema schema
+             :value-value {:_id 1, :v "v"}})
+      (log/info "--------------- Sleeping...")
+      ; When configured below 10 seconds this should reuse connection. Check in logs
+      (Thread/sleep 60000)
+      (log/info "--------------- Before second sink...")
+      (sink {:key-value nil
+             :key-schema schema
+             :value-value {:_id 2, :v "v"}}))))
+
+(deftest ^:manual check-jdbc4-isValid-works-for-XtConnection
+  (with-open [conn (jdbc/get-connection xtdb/*jdbc-url*)]
+    (jdbc/execute-one! conn ["SELECT 1"])
+    (is (.isValid conn 3000))
+    (.close conn)
+    (is (not (.isValid conn 3000)))))
+
+(deftest ^:manual just-connect
+  (with-open [_ (doto (XtdbSinkTask.)
+                  (.start {"connection.url" "jdbc:xtdb://localhost:51222/wrongport"}))]
+    (Thread/sleep 10000)
+    (log/info "--------------- Closing...")))
+      ; When configured below 10 seconds this should reuse connection. Check in logs
+
+(deftest ^:manual check-first-connection
+  (with-open [pool (doto (HikariDataSource.)
+                     (.setJdbcUrl "jdbc:xtdb://localhost:51222/wrongport"))]
+    (println (.getConnection pool))))

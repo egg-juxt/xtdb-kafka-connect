@@ -3,7 +3,7 @@
             [clojure.set :refer [rename-keys]]
             [jsonista.core :as json]
             [xtdb.api :as xt]
-            [xtdb.kafka.connect.test.e2e-fixture :as fixture :refer [*xtdb-conn* *xtdb-db*]]
+            [xtdb.kafka.connect.test.e2e-fixture :as fixture :refer [*xtdb-conn*]]
             [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record]]))
 
 (use-fixtures :once fixture/with-containers)
