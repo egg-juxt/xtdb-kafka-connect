@@ -4,6 +4,7 @@ plugins {
     kotlin("jvm") version "2.1.20"
     kotlin("plugin.serialization") version "2.1.21"
     id("com.gradleup.shadow") version "8.3.6"
+    id("com.github.breadmoirai.github-release") version "2.4.1"
 }
 
 // Clojure access to Kotlin classes
@@ -107,5 +108,23 @@ tasks.register<Zip>("archive") {
             exclude("manifest.json")
         }
         from(tasks.getByName("manifest"))
+    }
+}
+
+githubRelease {
+    token(properties["github.token"] as String)
+    owner = "egg-juxt"
+    repo = "xtdb-kafka-connect"
+
+    tagName = "v${project.version}"
+    releaseName = "Uber-JAR v${project.version}"
+    body = "Automated release for version ${project.version}."
+
+    releaseAssets = files(tasks.shadowJar.get().archiveFile.get().asFile, tasks["archive"])
+
+    // This task will depend on shadowJar to ensure the file exists before uploading.
+    tasks.register("createGithubRelease") {
+        dependsOn(tasks.shadowJar)
+        dependsOn(tasks["archive"])
     }
 }
