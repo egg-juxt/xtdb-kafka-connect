@@ -79,8 +79,7 @@
                  e))))))
 
 (defn encode-by-schema [^Schema schema, data]
-  (log/debug "encoding data of type" (type data) "following schema" schema)
-  (log/trace "encoding data:" data)
+  (log/trace "encoding data" {:type (type data), :schema schema, :data data})
   (encode-by-schema* schema data []))
 
 (defn ^ConnectRecord encode-record-value-by-schema [^ConnectRecord record]

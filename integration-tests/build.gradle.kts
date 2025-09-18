@@ -24,6 +24,7 @@ dependencies {
 
     testImplementation("org.testcontainers", "testcontainers", "1.21.3")
     testImplementation("org.testcontainers", "kafka", "1.21.3")
+    testImplementation("org.testcontainers", "toxiproxy", "1.21.3")
 
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
 }

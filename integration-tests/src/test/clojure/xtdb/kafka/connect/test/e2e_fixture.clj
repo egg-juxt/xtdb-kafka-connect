@@ -170,10 +170,12 @@
   (let [schema-registry (::schema-registry *containers*)]
     (str "http://" (-> schema-registry .getNetworkAliases first) ":8081")))
 
+(defn xtdb-host+port []
+  (str (-> *containers* ::xtdb .getNetworkAliases first)
+       ":5432"))
+
 (defn xtdb-jdbc-url-for-containers []
-  (str "jdbc:xtdb://"
-       (-> *containers* ::xtdb .getNetworkAliases first)
-       ":5432/" *xtdb-db*))
+  (str "jdbc:xtdb://" (xtdb-host+port) "/" *xtdb-db*))
 
 (defn with-connector [conf]
   (http/post (str (connect-api-url) "/connectors")

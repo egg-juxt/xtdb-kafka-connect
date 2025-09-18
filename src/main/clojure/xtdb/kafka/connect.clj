@@ -108,12 +108,15 @@
             (not (tombstone? record))
             (let [doc (record->edn record)
                   id (find-eid conf record doc)]
-              [(format "INSERT INTO %s RECORDS ?" table)
-               (assoc doc :_id id)])
+              {:op :insert
+               :table table
+               :params [(assoc doc :_id id)]})
 
             (= "record_key" (.getIdMode conf))
             (let [id (find-record-key-eid conf record)]
-              [(format "DELETE FROM %s WHERE _id = ?" table) id])
+              {:op :delete
+               :table table
+               :params [id]})
 
             :else (throw (IllegalArgumentException. (str "Unsupported tombstone mode: " record))))
 
@@ -121,7 +124,20 @@
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [conn props records]
-  (jdbc/with-transaction [tx conn]
-    (doseq [record records]
-      (jdbc/execute! tx (transform-sink-record props record))))
-  (log/debug "submitted record batch of size" (count records)))
+  (log/debug "putting" (count records))
+  (when (seq records)
+    (doseq [batch (->> records
+                    (map (partial transform-sink-record props))
+                    (partition-by (juxt :op :table)))]
+      (let [start (System/nanoTime)
+            {:keys [op table]} (first batch)
+            sql (str/join " " (case op
+                                :insert ["INSERT INTO" table "RECORDS ?"]
+                                :delete ["DELETE FROM" table "WHERE _id = ?"]))]
+        (with-open [conn (jdbc/get-connection conn)
+                    prep-stmt (jdbc/prepare conn [sql])]
+          (jdbc/execute-batch! prep-stmt (map :params batch)))
+        (log/debug "submitted batch" {:op op
+                                      :table table
+                                      :size (count records)
+                                      :time (-> (System/nanoTime) double (- start) (/ 1000000))})))))
