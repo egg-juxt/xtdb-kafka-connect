@@ -2,10 +2,12 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
-            [next.jdbc :as jdbc])
+            [next.jdbc :as jdbc]
+            [xtdb.api :as xt])
   (:import [java.util List Map]
            [org.apache.kafka.connect.data Field Schema Struct]
            org.apache.kafka.connect.sink.SinkRecord
+           (org.postgresql PGConnection)
            (xtdb.kafka.connect XtdbSinkConfig)))
 
 (defn- map->edn [m]
@@ -108,15 +110,17 @@
             (not (tombstone? record))
             (let [doc (record->edn record)
                   id (find-eid conf record doc)]
-              {:op :insert
+              {:op :put-docs
                :table table
-               :params [(assoc doc :_id id)]})
+               :params (-> doc
+                         (dissoc :_id)
+                         (assoc :xt/id id))})
 
             (= "record_key" (.getIdMode conf))
             (let [id (find-record-key-eid conf record)]
-              {:op :delete
+              {:op :delete-docs
                :table table
-               :params [id]})
+               :params id})
 
             :else (throw (IllegalArgumentException. (str "Unsupported tombstone mode: " record))))
 
@@ -130,13 +134,11 @@
                     (map (partial transform-sink-record props))
                     (partition-by (juxt :op :table)))]
       (let [start (System/nanoTime)
-            {:keys [op table]} (first batch)
-            sql (str/join " " (case op
-                                :insert ["INSERT INTO" table "RECORDS ?"]
-                                :delete ["DELETE FROM" table "WHERE _id = ?"]))]
-        (with-open [conn (jdbc/get-connection conn)
-                    prep-stmt (jdbc/prepare conn [sql])]
-          (jdbc/execute-batch! prep-stmt (map :params batch)))
+            {:keys [op table]} (first batch)]
+        (with-open [conn (jdbc/get-connection conn)]
+          (xt/execute-tx (.unwrap conn PGConnection)
+            [(into [op (keyword table)]
+                   (log/spy :debug (map :params batch)))]))
         (log/debug "submitted batch" {:op op
                                       :table table
                                       :size (count records)
