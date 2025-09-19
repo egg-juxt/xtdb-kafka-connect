@@ -9,7 +9,8 @@
 
 (defonce ^GenericContainer xtdb-container-conf
   (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.0.0")
-    (.withEnv "XTDB_LOGGING_LEVEL" "debug")
+    (.withEnv "XTDB_LOGGING_LEVEL_PGWIRE" "debug")
+    (.withEnv "XTDB_LOGGING_LEVEL_SQL" "debug")
     (.withCommand ^"[Ljava.lang.String;" (into-array ^String ["--playground"]))
     (.withExposedPorts (into-array [(int 5432)]))
     ;(.withStartupTimeout ...)

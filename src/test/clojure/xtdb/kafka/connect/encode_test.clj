@@ -56,9 +56,9 @@
         encoded-record (encode/encode-record-value-by-schema record)]
     (is (= nil (.valueSchema encoded-record)))
     (xt/execute-tx xtdb/*conn* [[:put-docs :my-table (-> encoded-record
-                                                .value
-                                                (update-keys keyword)
-                                                (clojure.set/rename-keys {:_id :xt/id}))]])
+                                                       .value
+                                                       (update-keys keyword)
+                                                       (clojure.set/rename-keys {:_id :xt/id}))]])
     (is (= (query-col-types xtdb/*conn* "my_table")
            {:_id :utf8
 
