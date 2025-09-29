@@ -13,10 +13,12 @@ private val LOGGER = LoggerFactory.getLogger(XtdbSinkTask::class.java)
 
 class XtdbSinkTask : SinkTask(), AutoCloseable {
     companion object {
+        private val resetTries: IFn
         private val submitSinkRecords: IFn
 
         init {
             Clojure.`var`("clojure.core/require").invoke(Clojure.read("xtdb.kafka.connect"))
+            resetTries = Clojure.`var`("xtdb.kafka.connect/reset-tries!")
             submitSinkRecords = Clojure.`var`("xtdb.kafka.connect/submit-sink-records")
         }
     }
@@ -25,6 +27,8 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
     private lateinit var dataSource: HikariDataSource;
 
     override fun start(props: Map<String, String>) {
+        resetTries()
+
         config = XtdbSinkConfig.parse(props)
 
         dataSource = HikariDataSource().apply {
@@ -45,7 +49,7 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
     }
 
     override fun put(sinkRecords: Collection<SinkRecord>) {
-        submitSinkRecords(dataSource, config, sinkRecords)
+        submitSinkRecords(this.context, dataSource, config, sinkRecords)
     }
 
     override fun version(): String = XtdbSinkConnector().version()

@@ -41,7 +41,7 @@
   (.close container))
 
 (defmethod ig/init-key ::connector-jar-file [_ _]
-  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a04-all.jar")]
+  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a06-all.jar")]
     (if (.exists jar-file)
       jar-file
       (throw (IllegalStateException. (str "Not found: " jar-file))))))
@@ -121,7 +121,7 @@
         (finally
           (ig/halt! *containers*))))))
 
-(defn run-permanently []
+(defn run-permanently! []
   "Manually starts the fixture until manually stopped, for faster testing at dev-time."
   (let [init-exc (atom nil)]
     (alter-var-root #'*containers* (fn [prev]
@@ -136,11 +136,21 @@
                                                (throw e)))))))
     (some-> @init-exc throw)))
 
-(defn stop-permanently []
+(defn stop-permanently! []
   "Manually stops the fixture."
   (alter-var-root #'*containers* (fn [prev]
                                    (ig/halt! prev)
                                    nil)))
+
+(defn stop-container! [k]
+  (-> *containers*
+    ^GenericContainer (get k)
+    .stop))
+
+(defn start-container! [k]
+  (-> *containers*
+    ^GenericContainer (get k)
+    .start))
 
 (def ^:dynamic *xtdb-db*)
 (def ^:dynamic *xtdb-conn*)

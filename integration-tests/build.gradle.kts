@@ -31,5 +31,9 @@ dependencies {
 
 tasks.test {
     dependsOn(":shadowJar")
-    useJUnitPlatform()
+
+    useJUnitPlatform {
+        excludeTags("manual")
+    }
+    include("xtdb/kafka/**")
 }

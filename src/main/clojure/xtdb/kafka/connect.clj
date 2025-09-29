@@ -3,9 +3,13 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [next.jdbc :as jdbc])
-  (:import [java.util List Map]
+  (:import (clojure.lang ExceptionInfo)
+           (java.sql SQLException SQLTransientConnectionException)
+           [java.util List Map]
            [org.apache.kafka.connect.data Field Schema Struct]
            org.apache.kafka.connect.sink.SinkRecord
+           (org.apache.kafka.connect.errors RetriableException)
+           (org.apache.kafka.connect.sink SinkTaskContext)
            (xtdb.kafka.connect XtdbSinkConfig)))
 
 (defn- map->edn [m]
@@ -122,22 +126,60 @@
 
       (->> (log/trace "tx op:")))))
 
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defn submit-sink-records [conn props records]
-  (log/debug "putting" (count records))
+(defn submit-sink-records-impl [connectable props records]
+  (log/debug "processing records..." {:count (count records)})
   (when (seq records)
-    (doseq [batch (->> records
-                    (map (partial transform-sink-record props))
-                    (partition-by (juxt :op :table)))]
-      (let [start (System/nanoTime)
-            {:keys [op table]} (first batch)
-            sql (str/join " " (case op
-                                :insert ["INSERT INTO" table "RECORDS ?"]
-                                :delete ["DELETE FROM" table "WHERE _id = ?"]))]
-        (with-open [conn (jdbc/get-connection conn)
-                    prep-stmt (jdbc/prepare conn [sql])]
-          (jdbc/execute-batch! prep-stmt (map :params batch)))
-        (log/debug "submitted batch" {:op op
-                                      :table table
-                                      :size (count records)
-                                      :time (-> (System/nanoTime) double (- start) (/ 1000000))})))))
+    (with-open [conn (jdbc/get-connection connectable)]
+      (let [start (System/nanoTime)]
+        (jdbc/with-transaction [txn conn]
+          (doseq [batch (->> records
+                          (map (partial transform-sink-record props))
+                          (partition-by (juxt :op :table)))]
+            (let [{:keys [op table]} (first batch)
+                  sql (str/join " " (case op
+                                      :insert ["INSERT INTO" table "RECORDS ?"]
+                                      :delete ["DELETE FROM" table "WHERE _id = ?"]))]
+              (with-open [prep-stmt (jdbc/prepare txn [sql])]
+                (jdbc/execute-batch! prep-stmt (map :params batch)))
+              (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+        (log/debug "committed records" {:count (count records)
+                                        :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))})))))
+
+(def retry-delay-ms 10000)
+(def max-retries 2)
+(def remaining-tries (atom (inc max-retries)))
+
+(defn reset-tries! []
+  (reset! remaining-tries (inc max-retries)))
+
+(defn handle-psql-exception [^SinkTaskContext context, ^SQLException e]
+  (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
+                                        (= "08001" (.getSQLState e)))]
+    (if transient-connection-error?
+      (reset-tries!)
+      (swap! remaining-tries dec))
+
+    (if (pos? @remaining-tries)
+      (do
+        (log/info "retrying" {:remaining-retries @remaining-tries, :retry-delay-ms retry-delay-ms})
+        (.timeout context retry-delay-ms)
+        (throw (RetriableException. ^Throwable e)))
+      (throw e))))
+
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+(defn submit-sink-records [^SinkTaskContext context connectable props records]
+  (try
+    (submit-sink-records-impl connectable props records)
+    (reset-tries!)
+
+    (catch SQLException e
+      (handle-psql-exception context e))
+
+    ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
+    (catch ExceptionInfo e
+      (let [{:keys [handling rollback]} (ex-data e)]
+        (when (and handling
+                   rollback
+                   (instance? SQLException handling))
+          (log/error rollback "transaction rollback also failed")
+          (handle-psql-exception context handling))))))

@@ -12,12 +12,15 @@
 (use-fixtures :once xtdb/with-container)
 (use-fixtures :each xtdb/with-conn)
 
+(defn start-sink! [conf]
+  (doto (XtdbSinkTask.)
+    (.start (-> {:connection.url xtdb/*jdbc-url*}
+              (merge conf)
+              (update-keys name)))))
+
 (deftest id_mode-option
   (let [sink (fn [conf record]
-               (with-open [sink-task (doto (XtdbSinkTask.)
-                                       (.start (-> conf
-                                                 (merge {:connection.url xtdb/*jdbc-url*})
-                                                 (update-keys name))))]
+               (with-open [sink-task (start-sink! conf)]
                  (.put sink-task [(->sink-record (-> record
                                                      (merge {:topic "foo"})))])))
         query-foo #(first (xt/q xtdb/*conn* "SELECT * FROM foo"))]
@@ -39,8 +42,7 @@
     (is (= (query-foo) {:xt/id 1, :v "v"}))))
 
 (deftest ^:manual connection-reuse
-  (with-open [sink-task (doto (XtdbSinkTask.)
-                          (.start {"connection.url" xtdb/*jdbc-url*}))]
+  (with-open [sink-task (start-sink! {})]
     (let [sink (fn [record]
                  (.put sink-task [(->sink-record (-> record
                                                    (merge {:topic "foo"})))]))
@@ -66,8 +68,7 @@
     (is (not (.isValid conn 3000)))))
 
 (deftest ^:manual just-connect
-  (with-open [_ (doto (XtdbSinkTask.)
-                  (.start {"connection.url" "jdbc:xtdb://localhost:51222/wrongport"}))]
+  (with-open [_ (start-sink! {:connection.url "jdbc:xtdb://localhost:51222/wrongport"})]
     (Thread/sleep 10000)
     (log/info "--------------- Closing...")))
       ; When configured below 10 seconds this should reuse connection. Check in logs

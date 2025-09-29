@@ -16,7 +16,7 @@ tasks.checkClojure.get().classpath.from(kotlinClassesDir)
 tasks.clojureRepl.get().classpath.from(kotlinClassesDir)
 
 group = "com.xtdb"
-version = "2.0.0-a04"
+version = "2.0.0-a06"
 
 repositories {
     mavenCentral()

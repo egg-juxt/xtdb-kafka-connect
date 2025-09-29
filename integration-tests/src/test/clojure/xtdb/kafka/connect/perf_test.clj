@@ -9,10 +9,10 @@
 
 (use-fixtures :once fixture/with-containers)
 (comment ; For dev
-  (fixture/run-permanently)
+  (fixture/run-permanently!)
   (do
-    (fixture/stop-permanently)
-    (fixture/run-permanently)))
+    (fixture/stop-permanently!)
+    (fixture/run-permanently!)))
 
 (use-fixtures :each fixture/with-xtdb-conn)
 

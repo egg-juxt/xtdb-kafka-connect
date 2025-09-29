@@ -8,12 +8,12 @@
 
 (use-fixtures :once fixture/with-containers)
 (comment ; For dev
-  (fixture/run-permanently)
-  (fixture/stop-permanently))
+  (fixture/run-permanently!)
+  (fixture/stop-permanently!))
 
 (use-fixtures :each fixture/with-xtdb-conn)
 
-(deftest ^:manual ingest_record_with_in-band_connect-schema
+(deftest ingest_record_with_in-band_connect-schema
   (with-open [_ (fixture/with-connector
                   {:topics "my_table"
                    :value.converter "org.apache.kafka.connect.json.JsonConverter"
@@ -97,7 +97,7 @@
   (print-json-for-docs simple-example-conf)
   (print-json-for-docs simple-example-data))
 
-(deftest ^:manual simple-example
+(deftest simple-example
   (with-open [_ (with-connector* simple-example-conf)]
     (fixture/send-record! "readings" "1" (json/write-value-as-string simple-example-data))
     (await-readings-result)
@@ -125,7 +125,7 @@
   (print-json-for-docs rename-example-conf)
   (print-json-for-docs rename-example-data))
 
-(deftest ^:manual rename-example
+(deftest rename-example
   (with-open [_ (with-connector* (merge simple-example-conf
                                         rename-example-conf))]
     (fixture/send-record! "readings" "1" (json/write-value-as-string rename-example-data))
@@ -165,7 +165,7 @@
   (print-json-for-docs json-schema-example-schema)
   (print-json-for-docs json-schema-example-data))
 
-(deftest ^:manual json-schema-example
+(deftest json-schema-example
   (with-open [_ (with-connector* (merge basic-example-conf
                                         json-schema-example-conf))]
     (let [schema-id (fixture/register-schema! {:subject "readings-value"
@@ -214,7 +214,7 @@
   (print-json-for-docs avro-schema-example-schema)
   (print-json-for-docs avro-schema-example-data))
 
-(deftest ^:manual avro-schema-example
+(deftest avro-schema-example
   (with-open [_ (with-connector* (merge basic-example-conf
                                         avro-schema-example-conf))]
     (let [schema-id (fixture/register-schema! {:subject "readings-value"
@@ -254,7 +254,7 @@
   (print-json-for-docs connect-schema-example-conf)
   (print-json-for-docs connect-schema-example-data))
 
-(deftest ^:manual connect-schema-example
+(deftest connect-schema-example
   (with-open [_ (with-connector* (merge basic-example-conf
                                         connect-schema-example-conf))]
     (fixture/send-record! "readings" "1"
