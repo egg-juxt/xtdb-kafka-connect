@@ -5,7 +5,8 @@
             [xtdb.kafka.connect.test.util :refer [->sink-record ->struct query-col-types]]
             [xtdb.test.xtdb-fixture :as xtdb])
   (:import (clojure.lang ExceptionInfo)
-           (java.util ArrayList)
+           (java.time LocalDate ZoneId)
+           (java.util ArrayList Date)
            (org.apache.kafka.connect.data ConnectSchema Schema SchemaBuilder)))
 
 (use-fixtures :once xtdb/with-container)
@@ -13,27 +14,29 @@
 
 (deftest encode-by-schema_called_with_Struct_succeeds
   (let [^ConnectSchema schema (-> (SchemaBuilder/struct)
-                                  (.field "_id" Schema/STRING_SCHEMA)
-                                  (.field "my_int64" Schema/INT64_SCHEMA)
-                                  (.field "my_int32" Schema/INT32_SCHEMA)
-                                  (.field "my_int16" Schema/INT16_SCHEMA)
-                                  (.field "my_int8" Schema/INT8_SCHEMA)
+                                (.field "_id" Schema/STRING_SCHEMA)
+                                (.field "my_int64" Schema/INT64_SCHEMA)
+                                (.field "my_int32" Schema/INT32_SCHEMA)
+                                (.field "my_int16" Schema/INT16_SCHEMA)
+                                (.field "my_int8" Schema/INT8_SCHEMA)
 
-                                  (.field "my_float64" Schema/FLOAT64_SCHEMA)
-                                  (.field "my_float32" Schema/FLOAT32_SCHEMA)
+                                (.field "my_float64" Schema/FLOAT64_SCHEMA)
+                                (.field "my_float32" Schema/FLOAT32_SCHEMA)
 
-                                  (.field "my_timestamp" (-> (SchemaBuilder/string)
-                                                             (.parameter "xtdb.type" "timestamptz")
+                                (.field "my_timestamp" (-> (SchemaBuilder/string)
+                                                           (.parameter "xtdb.type" "timestamptz")
+                                                           (.build)))
+                                (.field "my_interval" (-> (SchemaBuilder/string)
+                                                          (.parameter "xtdb.type" "interval")
+                                                          (.build)))
+
+                                (.field "my_int32_array" (-> (SchemaBuilder/array Schema/INT32_SCHEMA)
                                                              (.build)))
-                                  (.field "my_interval" (-> (SchemaBuilder/string)
-                                                            (.parameter "xtdb.type" "interval")
-                                                            (.build)))
+                                (.field "my_map_of_int32" (-> (SchemaBuilder/map Schema/STRING_SCHEMA Schema/INT32_SCHEMA)
+                                                              (.build)))
 
-                                  (.field "my_int32_array" (-> (SchemaBuilder/array Schema/INT32_SCHEMA)
-                                                               (.build)))
-                                  (.field "my_map_of_int32" (-> (SchemaBuilder/map Schema/STRING_SCHEMA Schema/INT32_SCHEMA)
-                                                                (.build)))
-                                  (.build))
+                                (.field "my_date" org.apache.kafka.connect.data.Date/SCHEMA)
+                                (.build))
 
         value (->struct schema {:_id "my_id"
                                 :my_int64 42
@@ -46,7 +49,8 @@
                                 :my_interval "P1DT1H"
                                 :my_int32_array (ArrayList. [(int 1) (int 2) (int 3)])
                                 :my_map_of_int32 {"key1" (int 1)
-                                                  "key2" (int 2)}})
+                                                  "key2" (int 2)}
+                                :my_date (-> (LocalDate/now) (.atStartOfDay (ZoneId/of "UTC")) .toInstant Date/from)})
 
         record (->sink-record {:topic "my_topic"
                                :key-value "_id_value"
@@ -74,7 +78,9 @@
             :my_interval [:interval :month-day-micro]
 
             :my_int32_array [:list :i32]
-            :my_map_of_int32 [:struct {'key1 :i32, 'key2 :i32}]}))))
+            :my_map_of_int32 [:struct {'key1 :i32, 'key2 :i32}]
+
+            :my_date [:date :day]}))))
 
 (deftest encode-by-schema_throws_errors_with_path
   (let [^ConnectSchema subschema (-> (SchemaBuilder/struct)

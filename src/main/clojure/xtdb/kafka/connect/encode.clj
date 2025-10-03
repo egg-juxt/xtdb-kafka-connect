@@ -3,7 +3,9 @@
             [clojure.tools.logging :as log]
             [cognitect.transit :as transit]
             [xtdb.kafka.connect.util :refer [clone-connect-record]])
-  (:import (java.util List)
+  (:import (com.cognitect.transit TaggedValue)
+           (java.time ZoneId)
+           (java.util List)
            (org.apache.kafka.connect.connector ConnectRecord)
            (org.apache.kafka.connect.data Field Schema Schema$Type Struct)))
 
@@ -17,15 +19,21 @@
 
 (defn ?encode-by-simple-type [^Schema schema data]
   (assert (some? data))
-  (condp = (.type schema)
-    Schema$Type/INT32 (transit/tagged-value "i32" data)
-    Schema$Type/INT16 (transit/tagged-value "i16" data)
-    Schema$Type/INT8 (transit/tagged-value "i8" data)
+  (cond
+    (instance? Number data)
+    (condp = (.type schema)
+      Schema$Type/INT32 (transit/tagged-value "i32" data)
+      Schema$Type/INT16 (transit/tagged-value "i16" data)
+      Schema$Type/INT8 (transit/tagged-value "i8" data)
 
-    Schema$Type/FLOAT64 (transit/tagged-value "f64" data)
-    Schema$Type/FLOAT32 (transit/tagged-value "f32" data)
+      Schema$Type/FLOAT64 (transit/tagged-value "f64" data)
+      Schema$Type/FLOAT32 (transit/tagged-value "f32" data)
 
-    nil))
+      nil)
+
+    (and (-> schema .name (= org.apache.kafka.connect.data.Date/LOGICAL_NAME))
+         (instance? java.util.Date data))
+    (-> data .toInstant (.atZone (ZoneId/of "UTC")) .toLocalDate)))
 
 (defn encode-by-schema* [^Schema schema, data, path]
   (try
@@ -35,7 +43,7 @@
 
       (-> schema .type (= Schema$Type/STRUCT))
       (if-not (instance? Struct data)
-        (throw (IllegalArgumentException. "expected Struct"))
+        (throw (IllegalArgumentException. (str "expected Struct, received " (type data))))
         (reduce
           (fn [m ^Field field]
             (assoc m (.name field) (encode-by-schema* (.schema field)
@@ -45,8 +53,9 @@
           (.fields schema)))
 
       (-> schema .type (= Schema$Type/MAP))
-      (if-not (map? data)
-        (throw (IllegalArgumentException. "expected Map"))
+      (if-not (or (instance? java.util.Map data)
+                  (map? data))
+        (throw (IllegalArgumentException. (str "expected Map, received " (type data))))
         (->> data
              (map (fn [[k v]]
                     (let [subpath (conj path (name k))]
@@ -67,9 +76,22 @@
       nil
 
       :else
-      (or (?encode-by-xtdb-type schema data)
-          (?encode-by-simple-type schema data)
-          data))
+      (let [encoded (or (?encode-by-xtdb-type schema data)
+                        (?encode-by-simple-type schema data)
+                        data)]
+        (log/trace "encoding simple data type" {:path path
+                                                :value data
+                                                :type (type data)
+                                                :schema-type (-> schema .type .name)
+                                                :schema-name (.name schema)
+                                                :schema-parameters (.parameters schema)
+                                                :encoded (if (instance? TaggedValue encoded)
+                                                           {:tag (.getTag encoded)
+                                                            :rep (.getRep encoded)
+                                                            :type-rep (type (.getRep encoded))}
+                                                           {:type (type encoded)
+                                                            :value encoded})})
+        encoded))
 
     (catch Exception e
       (if (-> e ex-data ::path)
@@ -80,7 +102,9 @@
 
 (defn encode-by-schema [^Schema schema, data]
   (log/trace "encoding data" {:type (type data), :schema schema, :data data})
-  (encode-by-schema* schema data []))
+  (let [result (encode-by-schema* schema data [])]
+    (log/trace "encoded data" data)
+    result))
 
 (defn ^ConnectRecord encode-record-value-by-schema [^ConnectRecord record]
   (clone-connect-record record {:value-schema nil
