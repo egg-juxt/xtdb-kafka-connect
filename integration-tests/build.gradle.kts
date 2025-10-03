@@ -6,6 +6,7 @@ repositories {
     mavenCentral()
     maven { name = "clojars"; url = uri("https://repo.clojars.org/") }
     maven { name = "confluent"; url = uri("https://packages.confluent.io/maven/") }
+    maven { name = "gradle"; url = uri("https://repo.gradle.org/gradle/libs-releases") }
 }
 
 dependencies {
@@ -25,6 +26,8 @@ dependencies {
     testImplementation("org.testcontainers", "testcontainers", "1.21.3")
     testImplementation("org.testcontainers", "kafka", "1.21.3")
     testImplementation("org.testcontainers", "toxiproxy", "1.21.3")
+
+    testImplementation("org.gradle", "gradle-tooling-api", "8.10")
 
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
 }

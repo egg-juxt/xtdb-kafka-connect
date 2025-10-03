@@ -1,7 +1,7 @@
 (ns xtdb.kafka.connect.ha-test
   (:require [clojure.test :refer :all]
             [jsonista.core :as json]
-            [xtdb.kafka.connect.test.e2e-fixture :as fixture]))
+            [xtdb.kafka.connect.test.containers-fixture :as fixture]))
 
 (use-fixtures :once fixture/with-containers)
 (comment ; For dev

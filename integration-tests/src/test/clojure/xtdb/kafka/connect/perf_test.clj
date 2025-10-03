@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [jsonista.core :as json]
             [xtdb.api :as xt]
-            [xtdb.kafka.connect.test.e2e-fixture :as fixture :refer [*xtdb-conn*]])
+            [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]])
   (:import (eu.rekawek.toxiproxy ToxiproxyClient)
            (eu.rekawek.toxiproxy.model ToxicDirection)
            (org.testcontainers.containers Network ToxiproxyContainer)))

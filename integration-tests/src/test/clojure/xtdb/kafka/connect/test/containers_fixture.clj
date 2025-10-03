@@ -1,5 +1,6 @@
-(ns xtdb.kafka.connect.test.e2e-fixture
-  (:require [hato.client :as http]
+(ns xtdb.kafka.connect.test.containers-fixture
+  (:require [clojure.string :as str]
+            [hato.client :as http]
             [clojure.java.io :as io]
             [clojure.test :refer :all]
             [integrant.core :as ig]
@@ -9,9 +10,13 @@
            (io.confluent.kafka.serializers.json KafkaJsonSchemaSerializer)
            (java.io File)
            (java.lang AutoCloseable)
-           (java.util Map)
+           (java.util Collection Map Properties)
+           (java.util.concurrent ExecutionException)
+           (org.apache.kafka.clients.admin AdminClient)
            (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
+           (org.apache.kafka.common.errors UnknownTopicOrPartitionException)
            (org.apache.kafka.common.serialization StringSerializer)
+           (org.gradle.tooling GradleConnector)
            (org.testcontainers.containers BindMode Container GenericContainer Network)
            (org.testcontainers.containers.wait.strategy Wait)
            (org.testcontainers.kafka ConfluentKafkaContainer)
@@ -40,8 +45,23 @@
 (defmethod ig/halt-key! ::kafka [_ container]
   (.close container))
 
+(def project-dir
+  (-> (File. "") (.getAbsoluteFile) (.getParentFile)))
+
+(defn load-properties-file [f]
+  (doto (Properties.) (.load (io/reader f))))
+
+(def project-version
+  (-> (load-properties-file (io/file project-dir "gradle.properties"))
+    (get "version")))
+
+(defn run-gradle-task! [task-name]
+  (with-open [conn (-> (GradleConnector/newConnector) (.forProjectDirectory project-dir) (.connect))]
+    (-> conn .newBuild (.forTasks (into-array [task-name])) .run)))
+
 (defmethod ig/init-key ::connector-jar-file [_ _]
-  (let [jar-file (io/file "../build/libs/xtdb-kafka-connect-2.0.0-a06-all.jar")]
+  (run-gradle-task! "shadowJar")
+  (let [jar-file (io/file project-dir "build" "libs" (str "xtdb-kafka-connect-" project-version "-all.jar"))]
     (if (.exists jar-file)
       jar-file
       (throw (IllegalStateException. (str "Not found: " jar-file))))))
@@ -62,7 +82,7 @@
                     (.withExposedPorts (into-array [(int 8083)]))
                     (.waitingFor (Wait/forHttp "/connectors"))
                     (.withFileSystemBind (.getParent connector-jar-file) plugin-path BindMode/READ_ONLY)
-                    (with-env {:CONNECT_LOG4J_LOGGERS "xtdb.kafka=DEBUG"
+                    (with-env {:CONNECT_LOG4J_LOGGERS "xtdb.kafka=ALL"
 
                                :CONNECT_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
                                :CONNECT_REST_PORT 8083
@@ -187,10 +207,17 @@
 (defn xtdb-jdbc-url-for-containers []
   (str "jdbc:xtdb://" (xtdb-host+port) "/" *xtdb-db*))
 
-(defn with-connector [conf]
+(defn kafka-endpoint-on-host []
+  (str "localhost:" (.getMappedPort (::kafka *containers*) 9092)))
+
+(defn delete-topics! [^Collection topics]
+  (with-open [admin (AdminClient/create {"bootstrap.servers" (kafka-endpoint-on-host)})]
+    (-> admin (.deleteTopics topics) .all .get)))
+
+(defn with-connector [{:keys [topics] :as conf}]
   (http/post (str (connect-api-url) "/connectors")
     {:body (json/write-value-as-string
-             {:name (:topics conf)
+             {:name topics
               :config (merge {:tasks.max "1"
                               :connector.class "xtdb.kafka.connect.XtdbSinkConnector"
                               :connection.url (xtdb-jdbc-url-for-containers)}
@@ -199,13 +226,13 @@
      :accept :json})
   (reify AutoCloseable
     (close [_]
-      (http/delete (str (connect-api-url) "/connectors/" (:topics conf))))))
-
-(comment
-  (-> *containers* ::xtdb .getNetworkAliases first))
-
-(defn kafka-endpoint-on-host []
-  (str "localhost:" (.getMappedPort (::kafka *containers*) 9092)))
+      (http/delete (str (connect-api-url) "/connectors/" topics))
+      (try
+        (delete-topics! (str/split topics #","))
+        (catch ExecutionException e
+          (if (instance? UnknownTopicOrPartitionException (ex-cause e))
+            (println "unknown topic to delete" topics)
+            (throw e)))))))
 
 (defn send-record! [topic k v & [{:keys [value-serializer schema-id]}]]
   (with-open [producer (KafkaProducer. ^Map

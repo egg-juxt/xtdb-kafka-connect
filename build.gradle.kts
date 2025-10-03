@@ -16,7 +16,7 @@ tasks.checkClojure.get().classpath.from(kotlinClassesDir)
 tasks.clojureRepl.get().classpath.from(kotlinClassesDir)
 
 group = "com.xtdb"
-version = "2.0.0-a06"
+version = project.findProperty("version") as String
 
 repositories {
     mavenCentral()
@@ -41,6 +41,7 @@ dependencies {
     implementation("cheshire", "cheshire", "5.13.0")
     implementation("com.xtdb", "xtdb-api", "2.0.0")
     implementation("com.zaxxer", "HikariCP", "7.0.2")
+    testCompileOnly("org.postgresql", "postgresql", "42.7.5")
 
     compileOnly("org.apache.kafka",  "connect-api", "3.9.1")
     testImplementation("org.apache.kafka",  "connect-api", "3.9.1")

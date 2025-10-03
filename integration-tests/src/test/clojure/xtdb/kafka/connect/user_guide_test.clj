@@ -1,9 +1,9 @@
-(ns xtdb.kafka.connect.e2e-test
+(ns xtdb.kafka.connect.user-guide-test
   (:require [clojure.test :refer :all]
             [clojure.set :refer [rename-keys]]
             [jsonista.core :as json]
             [xtdb.api :as xt]
-            [xtdb.kafka.connect.test.e2e-fixture :as fixture :refer [*xtdb-conn*]]
+            [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]]
             [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record]]))
 
 (use-fixtures :once fixture/with-containers)
