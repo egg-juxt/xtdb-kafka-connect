@@ -129,3 +129,22 @@ githubRelease {
         dependsOn(tasks["archive"])
     }
 }
+
+
+// Provide version name as a resource for `XtdbSinkConnector.version()`
+
+val generateVersionProperties = tasks.register("generateVersionProperties") {
+    val outDir = layout.buildDirectory.dir("generated/resources")
+    outputs.dir(outDir)
+    doLast {
+        val dir = outDir.get().asFile
+        dir.mkdirs()
+        val file = File(dir, "version.properties")
+        file.writeText("version=$version\n")
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn(generateVersionProperties)
+    (this as org.gradle.api.tasks.Copy).from(layout.buildDirectory.dir("generated/resources"))
+}

@@ -3,13 +3,22 @@ package xtdb.kafka.connect
 import org.apache.kafka.common.utils.AppInfoParser
 import org.apache.kafka.connect.connector.Task
 import org.apache.kafka.connect.sink.SinkConnector
+import java.util.Properties
 
 @Suppress("MemberVisibilityCanBePrivate")
 class XtdbSinkConnector : SinkConnector() {
 
     lateinit var xtConfig: XtdbSinkConfig
 
-    override fun version(): String = AppInfoParser.getVersion()
+    private val cachedVersion: String? by lazy {
+        val props = Properties()
+        XtdbSinkConnector::class.java.classLoader.getResourceAsStream("version.properties")?.use {
+            props.load(it)
+        } ?: return@lazy null
+        props.getProperty("version")?.takeIf { it.isNotBlank() }
+    }
+
+    override fun version(): String = cachedVersion ?: "<unknown>";
 
     override fun taskClass(): Class<out Task> = XtdbSinkTask::class.java
 
