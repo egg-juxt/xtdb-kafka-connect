@@ -22,6 +22,13 @@
            (org.testcontainers.kafka ConfluentKafkaContainer)
            (org.testcontainers.utility DockerImageName)))
 
+(def kafka-version "8.0.1")
+
+(defn with-env [^Container c m]
+  (-> (fn [c k v]
+        (.withEnv c (name k) (str v)))
+    (reduce-kv c m)))
+
 (def ^GenericContainer xtdb-container-conf
   (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.0.0")
     (.withEnv "XTDB_LOGGING_LEVEL" "debug")
@@ -37,7 +44,7 @@
   (.close container))
 
 (defmethod ig/init-key ::kafka [_ _]
-  (doto (ConfluentKafkaContainer. (DockerImageName/parse "confluentinc/cp-kafka:7.9.2"))
+  (doto (ConfluentKafkaContainer. (DockerImageName/parse (str "confluentinc/cp-kafka:" kafka-version)))
     (.withExposedPorts (into-array [(int 9092)]))
     (.withNetwork Network/SHARED)
     (.start)))
@@ -69,14 +76,9 @@
 (defn kafka-endpoint-for-containers [kafka]
   (str (-> kafka .getNetworkAliases first) ":9093"))
 
-(defn with-env [^Container c m]
-  (-> (fn [c k v]
-        (.withEnv c (name k) (str v)))
-      (reduce-kv c m)))
-
 (defmethod ig/init-key ::connect [_ {:keys [kafka ^File connector-jar-file]}]
   (let [plugin-path "/usr/local/share/xtdb-plugin"
-        container (doto (GenericContainer. (DockerImageName/parse "confluentinc/cp-kafka-connect:8.0.0"))
+        container (doto (GenericContainer. (DockerImageName/parse (str "confluentinc/cp-kafka-connect:" kafka-version)))
                     (.dependsOn [kafka])
                     (.withNetwork (.getNetwork kafka))
                     (.withExposedPorts (into-array [(int 8083)]))
@@ -110,7 +112,7 @@
   (.close container))
 
 (defmethod ig/init-key ::schema-registry [_ {:keys [kafka]}]
-  (doto (GenericContainer. "confluentinc/cp-schema-registry:7.9.2")
+  (doto (GenericContainer. (str "confluentinc/cp-schema-registry:" kafka-version))
     (.dependsOn [kafka])
     (.withNetwork (.getNetwork kafka))
     (.withExposedPorts (into-array [(int 8081)]))
