@@ -181,5 +181,5 @@
         (when (and handling
                    rollback
                    (instance? SQLException handling))
-          (log/error rollback "transaction rollback also failed")
+          (.addSuppressed handling rollback)
           (handle-psql-exception context handling))))))
