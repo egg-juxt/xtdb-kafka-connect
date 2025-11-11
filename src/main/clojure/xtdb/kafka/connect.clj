@@ -5,7 +5,7 @@
             [next.jdbc :as jdbc])
   (:import (clojure.lang ExceptionInfo)
            (java.sql SQLException SQLTransientConnectionException)
-           [java.util List Map]
+           [java.util Collection List Map]
            [org.apache.kafka.connect.data Field Schema Struct]
            org.apache.kafka.connect.sink.SinkRecord
            (org.apache.kafka.connect.errors RetriableException)
@@ -152,7 +152,7 @@
 (defn reset-tries! []
   (reset! remaining-tries (inc max-retries)))
 
-(defn handle-psql-exception [^SinkTaskContext context, ^SQLException e]
+(defn handle-psql-exception [^SinkTaskContext context, ^SQLException e, record-count]
   (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
                                         (= "08001" (.getSQLState e)))]
     (if transient-connection-error?
@@ -161,19 +161,21 @@
 
     (if (pos? @remaining-tries)
       (do
-        (log/info "retrying" {:remaining-retries @remaining-tries, :retry-delay-ms retry-delay-ms})
+        (log/info "retrying" {:remaining-retries @remaining-tries
+                              :retry-delay-ms retry-delay-ms
+                              :record-count record-count})
         (.timeout context retry-delay-ms)
         (throw (RetriableException. ^Throwable e)))
       (throw e))))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defn submit-sink-records [^SinkTaskContext context connectable props records]
+(defn submit-sink-records [^SinkTaskContext context, connectable, props, ^Collection records]
   (try
     (submit-sink-records-impl connectable props records)
     (reset-tries!)
 
     (catch SQLException e
-      (handle-psql-exception context e))
+      (handle-psql-exception context e (count records)))
 
     ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
     (catch ExceptionInfo e
@@ -182,4 +184,4 @@
                    rollback
                    (instance? SQLException handling))
           (.addSuppressed handling rollback)
-          (handle-psql-exception context handling))))))
+          (handle-psql-exception context handling (count records)))))))
