@@ -152,38 +152,37 @@
 (defn reset-tries! []
   (reset! remaining-tries (inc max-retries)))
 
-(defn handle-psql-exception [^SinkTaskContext context, ^SQLException e, record-count]
-  (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
-                                        (= "08001" (.getSQLState e)))]
-    (if transient-connection-error?
-      (reset-tries!)
-      (swap! remaining-tries dec))
-
-    (if (pos? @remaining-tries)
-      (do
-        (log/info "retrying" {:remaining-retries @remaining-tries
-                              :retry-delay-ms retry-delay-ms
-                              :record-count record-count})
-        (.timeout context retry-delay-ms)
-        (throw (RetriableException. ^Throwable e)))
-      (throw e))))
-
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [^SinkTaskContext context, connectable, props, ^Collection records]
-  (try
-    (submit-sink-records-impl connectable props records)
-    (reset-tries!)
+  (letfn [(handle-psql-exception [^SQLException e]
+            (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
+                                                  (= "08001" (.getSQLState e)))]
+              (if transient-connection-error?
+                (reset-tries!)
+                (swap! remaining-tries dec)))
 
-    (catch SQLException e
-      (handle-psql-exception context e (count records)))
+            (if (pos? @remaining-tries)
+              (do
+                (log/info "retrying" {:remaining-retries @remaining-tries
+                                      :retry-delay-ms retry-delay-ms
+                                      :record-count (count records)})
+                (.timeout context retry-delay-ms)
+                (throw (RetriableException. ^Throwable e)))
+              (throw e)))]
+    (try
+      (submit-sink-records-impl connectable props records)
+      (reset-tries!)
 
-    ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
-    (catch ExceptionInfo e
-      (let [{:keys [handling rollback]} (ex-data e)]
-        (if (and handling
-                 rollback
-                 (instance? SQLException handling))
-          (do
-            (.addSuppressed handling rollback)
-            (handle-psql-exception context handling (count records)))
-          (throw e))))))
+      (catch SQLException e
+        (handle-psql-exception e))
+
+      ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
+      (catch ExceptionInfo e
+        (let [{:keys [handling rollback]} (ex-data e)]
+          (if (and handling
+                   rollback
+                   (instance? SQLException handling))
+            (do
+              (.addSuppressed handling rollback)
+              (handle-psql-exception handling))
+            (throw e)))))))
