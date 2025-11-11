@@ -3,7 +3,7 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [next.jdbc :as jdbc])
-  (:import (clojure.lang ExceptionInfo)
+  (:import (clojure.lang Atom ExceptionInfo)
            (java.sql SQLException SQLTransientConnectionException)
            [java.util Collection List Map]
            [org.apache.kafka.connect.data Field Schema Struct]
@@ -126,7 +126,7 @@
 
       (->> (log/trace "tx op:")))))
 
-(defn submit-sink-records-impl [connectable props records]
+(defn submit-sink-records* [connectable props records]
   (log/debug "processing records..." {:count (count records)})
   (when (seq records)
     (with-open [conn (jdbc/get-connection connectable)]
@@ -145,16 +145,16 @@
         (log/debug "committed records" {:count (count records)
                                         :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))})))))
 
-(def retry-delay-ms 10000)
-(def max-retries 2)
-(def remaining-tries (atom (inc max-retries)))
-
-(defn reset-tries! []
-  (reset! remaining-tries (inc max-retries)))
-
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
-(defn submit-sink-records [^SinkTaskContext context, connectable, props, ^Collection records]
-  (letfn [(handle-psql-exception [^SQLException e]
+(defn submit-sink-records [^SinkTaskContext context
+                           connectable
+                           ^XtdbSinkConfig conf,
+                           ^Atom remaining-tries
+                           ^Collection records]
+  (letfn [(reset-tries! []
+            (reset! remaining-tries (inc (.getMaxRetries conf))))
+
+          (handle-psql-exception [^SQLException e]
             (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
                                                   (= "08001" (.getSQLState e)))]
               (if transient-connection-error?
@@ -162,15 +162,15 @@
                 (swap! remaining-tries dec)))
 
             (if (pos? @remaining-tries)
-              (do
+              (let [retry-backoff-ms (.getRetryBackoffMs conf)]
                 (log/info "retrying" {:remaining-retries @remaining-tries
-                                      :retry-delay-ms retry-delay-ms
+                                      :retry-backoff-ms retry-backoff-ms
                                       :record-count (count records)})
-                (.timeout context retry-delay-ms)
+                (.timeout context retry-backoff-ms)
                 (throw (RetriableException. ^Throwable e)))
               (throw e)))]
     (try
-      (submit-sink-records-impl connectable props records)
+      (submit-sink-records* connectable conf records)
       (reset-tries!)
 
       (catch SQLException e

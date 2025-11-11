@@ -1,6 +1,7 @@
 package xtdb.kafka.connect
 
 import clojure.java.api.Clojure
+import clojure.lang.Atom
 import clojure.lang.IFn
 import com.zaxxer.hikari.HikariDataSource
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
@@ -13,23 +14,21 @@ private val LOGGER = LoggerFactory.getLogger(XtdbSinkTask::class.java)
 
 class XtdbSinkTask : SinkTask(), AutoCloseable {
     companion object {
-        private val resetTries: IFn
         private val submitSinkRecords: IFn
 
         init {
             Clojure.`var`("clojure.core/require").invoke(Clojure.read("xtdb.kafka.connect"))
-            resetTries = Clojure.`var`("xtdb.kafka.connect/reset-tries!")
             submitSinkRecords = Clojure.`var`("xtdb.kafka.connect/submit-sink-records")
         }
     }
 
     private lateinit var config: XtdbSinkConfig
+    private lateinit var remainingTries: Atom;
     private lateinit var dataSource: HikariDataSource;
 
     override fun start(props: Map<String, String>) {
-        resetTries()
-
         config = XtdbSinkConfig.parse(props)
+        remainingTries = Atom(config.maxRetries + 1)
 
         dataSource = HikariDataSource().apply {
             jdbcUrl = config.connectionUrl
@@ -49,7 +48,7 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
     }
 
     override fun put(sinkRecords: Collection<SinkRecord>) {
-        submitSinkRecords(this.context, dataSource, config, sinkRecords)
+        submitSinkRecords(this.context, dataSource, config, remainingTries, sinkRecords)
     }
 
     override fun version(): String = XtdbSinkConnector().version()

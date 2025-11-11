@@ -8,7 +8,7 @@ import java.util.Properties
 @Suppress("MemberVisibilityCanBePrivate")
 class XtdbSinkConnector : SinkConnector() {
 
-    lateinit var xtConfig: XtdbSinkConfig
+    lateinit var configProps: Map<String, String>
 
     private val cachedVersion: String? by lazy {
         val props = Properties()
@@ -25,11 +25,11 @@ class XtdbSinkConnector : SinkConnector() {
     override fun config() = CONFIG_DEF
 
     override fun start(props: Map<String, String>) {
-        xtConfig = XtdbSinkConfig.parse(props)
+        configProps = props
     }
 
     override fun taskConfigs(maxTasks: Int): List<Map<String, String?>> =
-        xtConfig.taskConfig.let { config -> List(maxTasks) { config } }
+        List(maxTasks) { configProps }
 
     override fun stop() {
     }
