@@ -180,8 +180,10 @@
     ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
     (catch ExceptionInfo e
       (let [{:keys [handling rollback]} (ex-data e)]
-        (when (and handling
-                   rollback
-                   (instance? SQLException handling))
-          (.addSuppressed handling rollback)
-          (handle-psql-exception context handling (count records)))))))
+        (if (and handling
+                 rollback
+                 (instance? SQLException handling))
+          (do
+            (.addSuppressed handling rollback)
+            (handle-psql-exception context handling (count records)))
+          (throw e))))))
