@@ -2,7 +2,8 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
-            [next.jdbc :as jdbc])
+            [next.jdbc :as jdbc]
+            [xtdb.kafka.connect.util :refer [sinkRecord-original-offset]])
   (:import (clojure.lang Atom ExceptionInfo)
            (java.sql SQLException SQLTransientConnectionException)
            [java.util Collection List Map]
@@ -159,16 +160,20 @@
                                                   (= "08001" (.getSQLState e)))]
               (if transient-connection-error?
                 (reset-tries!)
-                (swap! remaining-tries dec)))
+                (swap! remaining-tries dec))
 
-            (if (pos? @remaining-tries)
-              (let [retry-backoff-ms (.getRetryBackoffMs conf)]
-                (log/info "retrying" {:remaining-retries @remaining-tries
-                                      :retry-backoff-ms retry-backoff-ms
-                                      :record-count (count records)})
-                (.timeout context retry-backoff-ms)
-                (throw (RetriableException. ^Throwable e)))
-              (throw e)))]
+              (if (pos? @remaining-tries)
+                (let [retry-backoff-ms (.getRetryBackoffMs conf)]
+                  (.timeout context retry-backoff-ms)
+                  (throw (RetriableException. (str (merge (when-not transient-connection-error?
+                                                            {:remaining-retries @remaining-tries})
+                                                          {:retry-backoff-ms retry-backoff-ms
+                                                           :record-count (count records)
+                                                           :first-offset (some-> records first sinkRecord-original-offset)})
+                                                   " "
+                                                   e)
+                                              e)))
+                (throw e))))]
     (try
       (submit-sink-records* connectable conf records)
       (reset-tries!)

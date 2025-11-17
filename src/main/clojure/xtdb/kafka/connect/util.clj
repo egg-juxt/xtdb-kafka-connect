@@ -1,5 +1,6 @@
 (ns xtdb.kafka.connect.util
-  (:import (org.apache.kafka.connect.connector ConnectRecord)))
+  (:import (org.apache.kafka.connect.connector ConnectRecord)
+           (org.apache.kafka.connect.sink SinkRecord)))
 
 (defn clone-connect-record [^ConnectRecord record,
                             {:keys [topic kafka-partition
@@ -16,3 +17,9 @@
               (if (contains? changes :value) value (.value record))
               (if (contains? changes :timestamp) timestamp (.timestamp record))
               (if (contains? changes :headers) headers (.headers record))))
+
+(defn sinkRecord-original-offset [^SinkRecord r]
+  (try
+    (.originalKafkaOffset r)
+    (catch Throwable _
+      (.kafkaOffset r))))
