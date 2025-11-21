@@ -71,7 +71,7 @@
   (Thread/sleep 3000)
   (let [results (xt/q *xtdb-conn* "SELECT *, _valid_from FROM readings FOR VALID_TIME ALL")]
     (when (empty? results)
-      (println (-> fixture/*containers* ::fixture/connect .getLogs)))
+      (println (.getLogs fixture/connect)))
     (->> results
       (map #(rename-keys % {:xt/id :_id
                             :xt/valid-from :_valid_from})))))

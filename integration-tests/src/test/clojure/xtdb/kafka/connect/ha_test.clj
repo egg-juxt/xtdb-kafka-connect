@@ -4,14 +4,6 @@
             [xtdb.kafka.connect.test.containers-fixture :as fixture]))
 
 (use-fixtures :once fixture/with-containers)
-(comment ; For dev
-  (fixture/run-permanently!)
-  (do
-    (fixture/stop-permanently!)
-    (fixture/run-permanently!))
-
-  (fixture/stop-permanently!))
-
 (use-fixtures :each fixture/with-xtdb-conn)
 
 (deftest ^:manual retries
@@ -57,7 +49,7 @@
 
     (Thread/sleep 5000)
 
-    (fixture/stop-container! ::fixture/xtdb)
+    (fixture/stop-xtdb!)
     (try
       (Thread/sleep 1000)
 
@@ -71,6 +63,6 @@
       (Thread/sleep 60000)
 
       (finally
-        (fixture/start-container! ::fixture/xtdb)))))
+        (fixture/start-xtdb!)))))
 
 

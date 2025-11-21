@@ -3,7 +3,7 @@
             [hato.client :as http]
             [clojure.java.io :as io]
             [clojure.test :refer :all]
-            [integrant.core :as ig]
+            [mount.core :as mount :refer [defstate]]
             [jsonista.core :as json]
             [next.jdbc :as jdbc])
   (:import (io.confluent.kafka.serializers KafkaAvroSerializer)
@@ -37,20 +37,16 @@
     (.withExposedPorts (into-array [(int 5432)]))))
     ;(.withReuse true)))
 
-(defmethod ig/init-key ::xtdb [_ _]
-  (doto xtdb-container-conf .start))
+(defstate ^{:on-reload :noop} xtdb
+  :start (doto xtdb-container-conf .start)
+  :stop (.close xtdb))
 
-(defmethod ig/halt-key! ::xtdb [_ container]
-  (.close container))
-
-(defmethod ig/init-key ::kafka [_ _]
-  (doto (ConfluentKafkaContainer. (DockerImageName/parse (str "confluentinc/cp-kafka:" kafka-version)))
-    (.withExposedPorts (into-array [(int 9092)]))
-    (.withNetwork Network/SHARED)
-    (.start)))
-
-(defmethod ig/halt-key! ::kafka [_ container]
-  (.close container))
+(defstate ^{:on-reload :noop} kafka
+  :start (doto (ConfluentKafkaContainer. (DockerImageName/parse (str "confluentinc/cp-kafka:" kafka-version)))
+           (.withExposedPorts (into-array [(int 9092)]))
+           (.withNetwork Network/SHARED)
+           (.start))
+  :stop (.close kafka))
 
 (def project-dir
   (-> (File. "") (.getAbsoluteFile) (.getParentFile)))
@@ -66,113 +62,70 @@
   (with-open [conn (-> (GradleConnector/newConnector) (.forProjectDirectory project-dir) (.connect))]
     (-> conn .newBuild (.forTasks (into-array [task-name])) .run)))
 
-(defmethod ig/init-key ::connector-jar-file [_ _]
-  (run-gradle-task! "shadowJar")
-  (let [jar-file (io/file project-dir "build" "libs" (str "xtdb-kafka-connect-" project-version "-all.jar"))]
-    (if (.exists jar-file)
-      jar-file
-      (throw (IllegalStateException. (str "Not found: " jar-file))))))
+(defstate ^{:on-reload :noop} connector-jar-file
+  :start (do
+           (run-gradle-task! "shadowJar")
+           (let [jar-file (io/file project-dir "build" "libs" (str "xtdb-kafka-connect-" project-version "-all.jar"))]
+             (if (.exists jar-file)
+               jar-file
+               (throw (IllegalStateException. (str "Not found: " jar-file)))))))
 
 (defn kafka-endpoint-for-containers [kafka]
   (str (-> kafka .getNetworkAliases first) ":9093"))
 
-(defmethod ig/init-key ::connect [_ {:keys [kafka ^File connector-jar-file]}]
-  (let [plugin-path "/usr/local/share/xtdb-plugin"
-        container (doto (GenericContainer. (DockerImageName/parse (str "confluentinc/cp-kafka-connect:" kafka-version)))
-                    (.dependsOn [kafka])
-                    (.withNetwork (.getNetwork kafka))
-                    (.withExposedPorts (into-array [(int 8083)]))
-                    (.waitingFor (Wait/forHttp "/connectors"))
-                    (.withFileSystemBind (.getParent connector-jar-file) plugin-path BindMode/READ_ONLY)
-                    (with-env {:CONNECT_LOG4J_LOGGERS "xtdb.kafka=ALL"
+(defstate ^{:on-reload :noop} connect
+  :start (let [plugin-path "/usr/local/share/xtdb-plugin"
+               container (doto (GenericContainer. (DockerImageName/parse (str "confluentinc/cp-kafka-connect:" kafka-version)))
+                           (.dependsOn [kafka])
+                           (.withNetwork (.getNetwork kafka))
+                           (.withExposedPorts (into-array [(int 8083)]))
+                           (.waitingFor (Wait/forHttp "/connectors"))
+                           (.withFileSystemBind (.getParent connector-jar-file) plugin-path BindMode/READ_ONLY)
+                           (with-env {:CONNECT_LOG4J_LOGGERS "xtdb.kafka=ALL"
 
-                               :CONNECT_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
-                               :CONNECT_REST_PORT 8083
-                               :CONNECT_GROUP_ID "default"
+                                      :CONNECT_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
+                                      :CONNECT_REST_PORT 8083
+                                      :CONNECT_GROUP_ID "default"
 
-                               :CONNECT_CONFIG_STORAGE_TOPIC "default.config"
-                               :CONNECT_OFFSET_STORAGE_TOPIC "default.offsets"
-                               :CONNECT_STATUS_STORAGE_TOPIC "default.status"
+                                      :CONNECT_CONFIG_STORAGE_TOPIC "default.config"
+                                      :CONNECT_OFFSET_STORAGE_TOPIC "default.offsets"
+                                      :CONNECT_STATUS_STORAGE_TOPIC "default.status"
 
-                               ; we only have 1 kafka broker, so topic replication factor must be one
-                               :CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR 1
-                               :CONNECT_STATUS_STORAGE_REPLICATION_FACTOR 1
-                               :CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR 1
+                                      ; we only have 1 kafka broker, so topic replication factor must be one
+                                      :CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR 1
+                                      :CONNECT_STATUS_STORAGE_REPLICATION_FACTOR 1
+                                      :CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR 1
 
-                               :CONNECT_PLUGIN_DISCOVERY "service_load"
-                               :CONNECT_PLUGIN_PATH (str plugin-path "/" (.getName connector-jar-file))
+                                      :CONNECT_PLUGIN_DISCOVERY "service_load"
+                                      :CONNECT_PLUGIN_PATH (str plugin-path "/" (.getName connector-jar-file))
 
-                               :CONNECT_KEY_CONVERTER "org.apache.kafka.connect.storage.StringConverter"
-                               :CONNECT_VALUE_CONVERTER "org.apache.kafka.connect.json.JsonConverter"
-                               :CONNECT_REST_ADVERTISED_HOST_NAME "localhost"})
-                    (.start))]
-    container))
+                                      :CONNECT_KEY_CONVERTER "org.apache.kafka.connect.storage.StringConverter"
+                                      :CONNECT_VALUE_CONVERTER "org.apache.kafka.connect.json.JsonConverter"
+                                      :CONNECT_REST_ADVERTISED_HOST_NAME "localhost"})
+                           (.start))]
+           container)
+  :stop (.close connect))
 
-(defmethod ig/halt-key! ::connect [_ container]
-  (.close container))
-
-(defmethod ig/init-key ::schema-registry [_ {:keys [kafka]}]
-  (doto (GenericContainer. (str "confluentinc/cp-schema-registry:" kafka-version))
-    (.dependsOn [kafka])
-    (.withNetwork (.getNetwork kafka))
-    (.withExposedPorts (into-array [(int 8081)]))
-    (with-env {:SCHEMA_REGISTRY_HOST_NAME "schema-registry"
-               :SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
-               :SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL "none"})
-    (.start)))
-
-(defmethod ig/halt-key! ::schema-registry [_ container]
-  (.close container))
-
-(def conf {::connector-jar-file {}
-           ::xtdb {}
-           ::kafka {}
-           ::connect {:xtdb (ig/ref ::xtdb)
-                      :kafka (ig/ref ::kafka)
-                      :connector-jar-file (ig/ref ::connector-jar-file)}
-           ::schema-registry {:kafka (ig/ref ::kafka)}})
-
-(defonce ^:dynamic *containers* nil)
+(defstate ^{:on-reload :noop} schema-registry
+  :start (doto (GenericContainer. (str "confluentinc/cp-schema-registry:" kafka-version))
+           (.dependsOn [kafka])
+           (.withNetwork (.getNetwork kafka))
+           (.withExposedPorts (into-array [(int 8081)]))
+           (with-env {:SCHEMA_REGISTRY_HOST_NAME "schema-registry"
+                      :SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS (kafka-endpoint-for-containers kafka)
+                      :SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL "none"})
+           (.start))
+  :stop (.close schema-registry))
 
 (defn with-containers [f]
-  (if *containers*
-    (f)
-    (binding [*containers* (ig/init conf)]
-      (try
-        (f)
-        (finally
-          (ig/halt! *containers*))))))
+  (mount/start)
+  (f))
 
-(defn run-permanently! []
-  "Manually starts the fixture until manually stopped, for faster testing at dev-time."
-  (let [init-exc (atom nil)]
-    (alter-var-root #'*containers* (fn [prev]
-                                     (or prev
-                                         (try
-                                           (ig/init conf)
-                                           (catch Exception e
-                                             (if-let [partial-system (-> e ex-data :system)]
-                                               (do
-                                                 (reset! init-exc e)
-                                                 partial-system)
-                                               (throw e)))))))
-    (some-> @init-exc throw)))
+(defn stop-xtdb! []
+  (mount/stop #'xtdb))
 
-(defn stop-permanently! []
-  "Manually stops the fixture."
-  (alter-var-root #'*containers* (fn [prev]
-                                   (ig/halt! prev)
-                                   nil)))
-
-(defn stop-container! [k]
-  (-> *containers*
-    ^GenericContainer (get k)
-    .stop))
-
-(defn start-container! [k]
-  (-> *containers*
-    ^GenericContainer (get k)
-    .start))
+(defn start-xtdb! []
+  (mount/start #'xtdb))
 
 (def ^:dynamic *xtdb-db*)
 (def ^:dynamic *xtdb-conn*)
@@ -180,7 +133,7 @@
 (defn with-xtdb-conn [f]
   (binding [*xtdb-db* (random-uuid)]
     (with-open [xtdb-conn (jdbc/get-connection (str "jdbc:xtdb://localhost:"
-                                                    (-> *containers* ::xtdb (.getMappedPort 5432))
+                                                    (.getMappedPort xtdb 5432)
                                                     "/" *xtdb-db*))]
       (binding [*xtdb-conn* xtdb-conn]
         (f)))))
@@ -189,28 +142,24 @@
 ; Test utilities
 
 (defn connect-api-url []
-  (let [connect (::connect *containers*)]
-    (str "http://" (.getHost connect) ":" (.getMappedPort connect 8083))))
+  (str "http://" (.getHost connect) ":" (.getMappedPort connect 8083)))
 
 (defn schema-registry-base-url []
-  (let [schema-registry (::schema-registry *containers*)
-        host (.getHost schema-registry)
+  (let [host (.getHost schema-registry)
         port (.getMappedPort schema-registry 8081)]
     (str "http://" host ":" port)))
 
 (defn schema-registry-base-url-for-containers []
-  (let [schema-registry (::schema-registry *containers*)]
-    (str "http://" (-> schema-registry .getNetworkAliases first) ":8081")))
+  (str "http://" (-> schema-registry .getNetworkAliases first) ":8081"))
 
 (defn xtdb-host+port []
-  (str (-> *containers* ::xtdb .getNetworkAliases first)
-       ":5432"))
+  (str (-> xtdb .getNetworkAliases first) ":5432"))
 
 (defn xtdb-jdbc-url-for-containers []
   (str "jdbc:xtdb://" (xtdb-host+port) "/" *xtdb-db*))
 
 (defn kafka-endpoint-on-host []
-  (str "localhost:" (.getMappedPort (::kafka *containers*) 9092)))
+  (str "localhost:" (.getMappedPort kafka 9092)))
 
 (defn delete-topics! [^Collection topics]
   (with-open [admin (AdminClient/create {"bootstrap.servers" (kafka-endpoint-on-host)})]

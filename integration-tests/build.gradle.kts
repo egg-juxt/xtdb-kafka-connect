@@ -12,7 +12,7 @@ repositories {
 dependencies {
     implementation("org.clojure","clojure","1.12.0")
 
-    testImplementation("integrant", "integrant", "0.13.1")
+    testImplementation("mount", "mount", "0.1.23")
     testImplementation("com.github.seancorfield", "next.jdbc", "1.3.1048")
     testImplementation("hato", "hato", "1.0.0")
     testImplementation("metosin", "jsonista", "0.3.3")
