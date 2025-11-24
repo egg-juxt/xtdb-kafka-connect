@@ -28,16 +28,19 @@
 (defn query! []
   (xt/q xtdb/*conn* "SELECT * FROM foo"))
 
+(defn query1! []
+  (first (query!)))
+
 (deftest insert_mode-option
   (with-open [sink-task (start-sink! {:insert.mode "insert"})]
     (sink! sink-task {:key 1, :value {:_id 1, :a 1}})
     (sink! sink-task {:key 1, :value {:_id 1, :b 2}})
-    (is (= (first (query!)) {:xt/id 1, :b 2})))
+    (is (= (query1!) {:xt/id 1, :b 2})))
 
   (with-open [sink-task (start-sink! {:insert.mode "patch"})]
     (sink! sink-task {:key 1, :value {:_id 1, :a 1}})
     (sink! sink-task {:key 1, :value {:_id 1, :b 2}})
-    (is (= (first (query!)) {:xt/id 1, :a 1, :b 2}))
+    (is (= (query1!) {:xt/id 1, :a 1, :b 2}))
 
     (testing "trying to PATCH with a NULL value"
       (let [exc (is (thrown? Exception (sink! sink-task {:key 1, :value {:_id 1, :c nil}})))]
@@ -47,61 +50,44 @@
       (sink! sink-task {:key 1, :value {:_id 1, :c [nil]}}))))
 
 (deftest id_mode-option
-  (let [sink (fn [conf record]
-               (with-open [sink-task (start-sink! conf)]
-                 (.put sink-task [(->sink-record (-> record
-                                                     (merge {:topic "foo"})))])))
-        query-foo #(first (xt/q xtdb/*conn* "SELECT * FROM foo"))]
+  (with-open [sink-task (start-sink! {:id.mode "record_key"})]
+    (sink! sink-task {:key 1
+                      :key-schema Schema/INT64_SCHEMA
+                      :value {:_id 2, :v "v"}})
+    (is (= (query1!) {:xt/id 1, :v "v"})))
 
-    (sink {:id.mode "record_key"} {:key 1
-                                   :key-schema Schema/INT64_SCHEMA
-                                   :value {:_id 2, :v "v"}})
-    (is (= (query-foo) {:xt/id 1, :v "v"}))
+  (with-open [sink-task (start-sink! {:id.mode "record_key"})]
+    (sink! sink-task (let [schema (-> (SchemaBuilder/struct)
+                                      (.field "_id" Schema/INT64_SCHEMA))]
+                       {:key (->struct schema {:_id 1})
+                        :key-schema schema
+                        :value {:_id 2, :v "v"}}))
+    (is (= (query1!) {:xt/id 1, :v "v"})))
 
-    (sink {:id.mode "record_key"} (let [schema (-> (SchemaBuilder/struct)
-                                                   (.field "_id" Schema/INT64_SCHEMA))]
-                                    {:key (->struct schema {:_id 1})
-                                     :key-schema schema
-                                     :value {:_id 2, :v "v"}}))
-    (is (= (query-foo) {:xt/id 1, :v "v"}))
-
-    (sink {} {:key nil
-              :value {:_id 1 :v "v"}})
-    (is (= (query-foo) {:xt/id 1, :v "v"}))))
+  (with-open [sink-task (start-sink! {})]
+    (sink! sink-task {:key nil
+                      :value {:_id 1 :v "v"}})
+    (is (= (query1!) {:xt/id 1, :v "v"}))))
 
 (deftest ^:manual connection-reuse
   (with-open [sink-task (start-sink! {})]
-    (let [sink (fn [record]
-                 (.put sink-task [(->sink-record (-> record
-                                                   (merge {:topic "foo"})))]))
-          schema (-> (SchemaBuilder/struct)
+    (let [schema (-> (SchemaBuilder/struct)
                    (.field "_id" Schema/INT64_SCHEMA))]
       (log/info "--------------- Before first sink...")
-      (sink {:key nil
-             :key-schema schema
-             :value {:_id 1, :v "v"}})
+      (sink! sink-task {:key nil
+                        :key-schema schema
+                        :value {:_id 1, :v "v"}})
       (log/info "--------------- Sleeping...")
       ; When configured below 10 seconds this should reuse connection. Check in logs
       (Thread/sleep 60000)
       (log/info "--------------- Before second sink...")
-      (sink {:key nil
-             :key-schema schema
-             :value {:_id 2, :v "v"}}))))
+      (sink! sink-task {:key nil
+                        :key-schema schema
+                        :value {:_id 2, :v "v"}}))))
 
-(deftest ^:manual check-jdbc4-isValid-works-for-XtConnection
+(deftest check-jdbc4-isValid-works-for-XtConnection
   (with-open [conn (jdbc/get-connection xtdb/*jdbc-url*)]
     (jdbc/execute-one! conn ["SELECT 1"])
     (is (.isValid conn 3000))
     (.close conn)
     (is (not (.isValid conn 3000)))))
-
-(deftest ^:manual just-connect
-  (with-open [_ (start-sink! {:connection.url "jdbc:xtdb://localhost:51222/wrongport"})]
-    (Thread/sleep 10000)
-    (log/info "--------------- Closing...")))
-      ; When configured below 10 seconds this should reuse connection. Check in logs
-
-(deftest ^:manual check-first-connection
-  (with-open [pool (doto (HikariDataSource.)
-                     (.setJdbcUrl "jdbc:xtdb://localhost:51222/wrongport"))]
-    (println (.getConnection pool))))
