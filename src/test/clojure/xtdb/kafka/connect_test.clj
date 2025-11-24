@@ -1,5 +1,6 @@
 (ns xtdb.kafka.connect-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.string :as str]
+            [clojure.test :refer :all]
             [clojure.tools.logging :as log]
             [next.jdbc :as jdbc]
             [xtdb.api :as xt]
@@ -7,7 +8,10 @@
             [xtdb.test.xtdb-fixture :as xtdb])
   (:import (com.zaxxer.hikari HikariDataSource)
            (org.apache.kafka.connect.data Schema SchemaBuilder)
+           (org.apache.kafka.connect.errors RetriableException)
            (xtdb.kafka.connect XtdbSinkTask)))
+
+(declare thrown?)
 
 (use-fixtures :once xtdb/with-container)
 (use-fixtures :each xtdb/with-conn)
@@ -17,6 +21,30 @@
     (.start (-> {:connection.url xtdb/*jdbc-url*}
               (merge conf)
               (update-keys name)))))
+
+(defn sink! [sink-task, record]
+  (.put sink-task [(->sink-record (merge record {:topic "foo"}))]))
+
+(defn query! []
+  (xt/q xtdb/*conn* "SELECT * FROM foo"))
+
+(deftest insert_mode-option
+  (with-open [sink-task (start-sink! {:insert.mode "insert"})]
+    (sink! sink-task {:key-value 1, :value-value {:_id 1, :a 1}})
+    (sink! sink-task {:key-value 1, :value-value {:_id 1, :b 2}})
+    (is (= (first (query!)) {:xt/id 1, :b 2})))
+
+  (with-open [sink-task (start-sink! {:insert.mode "patch"})]
+    (sink! sink-task {:key-value 1, :value-value {:_id 1, :a 1}})
+    (sink! sink-task {:key-value 1, :value-value {:_id 1, :b 2}})
+    (is (= (first (query!)) {:xt/id 1, :a 1, :b 2}))
+
+    (testing "trying to PATCH with a NULL value"
+      (let [exc (is (thrown? Exception (sink! sink-task {:key-value 1, :value-value {:_id 1, :c nil}})))]
+        (is (and (not (instance? RetriableException exc)) (str/includes? (ex-message exc) "NULL"))))
+      (let [exc (is (thrown? Exception (sink! sink-task {:key-value 1, :value-value {:_id 1, :c {:d nil}}})))]
+        (is (not (instance? RetriableException exc)) (str/includes? (ex-message exc) "NULL")))
+      (sink! sink-task {:key-value 1, :value-value {:_id 1, :c [nil]}}))))
 
 (deftest id_mode-option
   (let [sink (fn [conf record]

@@ -106,14 +106,20 @@
         table-name-format (.getTableNameFormat conf)]
     (str/replace table-name-format "${topic}" topic)))
 
-(defn transform-sink-record [^XtdbSinkConfig conf, ^SinkRecord record]
+(defn record->op [^XtdbSinkConfig conf, ^SinkRecord record]
   (log/trace "sink record:" record)
   (let [table (table-name conf record)]
     (doto (cond
             (not (tombstone? record))
             (let [doc (record->edn record)
                   id (find-eid conf record doc)]
-              {:op :insert
+              {:op (case (.getInsertMode conf)
+                     "insert" :insert
+                     "patch" (do
+                               ; remove the following assert when XTDB's PATCH supports setting NULLs:
+                               (when (some nil? (tree-seq map? vals doc))
+                                 (throw (IllegalArgumentException. "PATCH doesn't allow setting NULL values")))
+                               :patch))
                :table table
                :params [(assoc doc :_id id)]})
 
@@ -130,21 +136,28 @@
 (defn submit-sink-records* [connectable props records]
   (log/debug "processing records..." {:count (count records)})
   (when (seq records)
-    (with-open [conn (jdbc/get-connection connectable)]
-      (let [start (System/nanoTime)]
-        (jdbc/with-transaction [txn conn]
-          (doseq [batch (->> records
-                          (map (partial transform-sink-record props))
-                          (partition-by (juxt :op :table)))]
-            (let [{:keys [op table]} (first batch)
-                  sql (str/join " " (case op
-                                      :insert ["INSERT INTO" table "RECORDS ?"]
-                                      :delete ["DELETE FROM" table "WHERE _id = ?"]))]
-              (with-open [prep-stmt (jdbc/prepare txn [sql])]
-                (jdbc/execute-batch! prep-stmt (map :params batch)))
-              (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
-        (log/debug "committed records" {:count (count records)
-                                        :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))})))))
+    (let [start (System/nanoTime)
+          ops (doall ; throw any transformation exceptions now, before storing anything in the database
+                (->> records
+                  (map (partial record->op props))))]
+      (with-open [conn (jdbc/get-connection connectable)]
+        (doseq [batch (->> ops
+                        (partition-by (juxt :op :table)))]
+          (let [{:keys [op table]} (first batch)
+                sql (str/join " " (case op
+                                    :insert ["INSERT INTO" table "RECORDS ?"]
+                                    :patch ["PATCH INTO" table "RECORDS ?"]
+                                    :delete ["DELETE FROM" table "WHERE _id = ?"]))
+                exec-batch! (fn [conn]
+                              (with-open [prep-stmt (jdbc/prepare conn [sql])]
+                                (jdbc/execute-batch! prep-stmt (map :params batch))))]
+            (condp contains? op
+              #{:insert :delete} (jdbc/with-transaction [txn conn]
+                                   (exec-batch! txn))
+              #{:patch} (exec-batch! conn))
+            (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+      (log/debug "committed records" {:count (count records)
+                                      :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [^SinkTaskContext context

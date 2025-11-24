@@ -2,14 +2,13 @@ package xtdb.kafka.connect
 
 import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.config.ConfigDef
-import org.apache.kafka.common.config.ConfigDef.Importance
-import org.apache.kafka.common.config.ConfigDef.NO_DEFAULT_VALUE
+import org.apache.kafka.common.config.ConfigDef.*
 import org.apache.kafka.common.config.ConfigDef.Type.INT
 import org.apache.kafka.common.config.ConfigDef.Type.STRING
-import org.apache.kafka.common.config.ConfigDef.Validator
 import org.apache.kafka.common.config.ConfigException
 
 internal const val CONNECTION_URL_CONFIG: String = "connection.url"
+internal const val INSERT_MODE_CONFIG: String = "insert.mode"
 internal const val ID_MODE_CONFIG: String = "id.mode"
 internal const val TABLE_NAME_FORMAT_CONFIG: String = "table.name.format"
 internal const val MAX_RETRIES = "max.retries"
@@ -31,6 +30,11 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
         "JDBC URL of XTDB server."
     )
     .define(
+        INSERT_MODE_CONFIG, STRING, "insert",
+        EnumValidator(setOf("insert", "patch")), Importance.HIGH,
+        "The insertion mode to use. Supported modes are ``insert`` and ``patch``."
+    )
+    .define(
         ID_MODE_CONFIG, STRING, "record_value",
         EnumValidator(setOf("record_key", "record_value")), Importance.HIGH,
         "Where to get the `_id` from. Supported modes are `record_key` and `record_value`."
@@ -50,10 +54,11 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
 
 data class XtdbSinkConfig(
     val connectionUrl: String,
-    var idMode: String,
-    var tableNameFormat: String,
-    var maxRetries: Int,
-    var retryBackoffMs: Int,
+    val insertMode: String,
+    val idMode: String,
+    val tableNameFormat: String,
+    val maxRetries: Int,
+    val retryBackoffMs: Int,
 ) {
     companion object {
         @JvmStatic
@@ -62,6 +67,7 @@ data class XtdbSinkConfig(
 
             return XtdbSinkConfig(
                 connectionUrl = parsedConfig.getString(CONNECTION_URL_CONFIG),
+                insertMode = parsedConfig.getString(INSERT_MODE_CONFIG),
                 idMode = parsedConfig.getString(ID_MODE_CONFIG),
                 tableNameFormat = parsedConfig.getString(TABLE_NAME_FORMAT_CONFIG),
                 maxRetries = parsedConfig.getInt(MAX_RETRIES),
