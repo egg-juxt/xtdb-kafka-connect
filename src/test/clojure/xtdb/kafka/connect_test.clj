@@ -30,21 +30,21 @@
 
 (deftest insert_mode-option
   (with-open [sink-task (start-sink! {:insert.mode "insert"})]
-    (sink! sink-task {:key-value 1, :value-value {:_id 1, :a 1}})
-    (sink! sink-task {:key-value 1, :value-value {:_id 1, :b 2}})
+    (sink! sink-task {:key 1, :value {:_id 1, :a 1}})
+    (sink! sink-task {:key 1, :value {:_id 1, :b 2}})
     (is (= (first (query!)) {:xt/id 1, :b 2})))
 
   (with-open [sink-task (start-sink! {:insert.mode "patch"})]
-    (sink! sink-task {:key-value 1, :value-value {:_id 1, :a 1}})
-    (sink! sink-task {:key-value 1, :value-value {:_id 1, :b 2}})
+    (sink! sink-task {:key 1, :value {:_id 1, :a 1}})
+    (sink! sink-task {:key 1, :value {:_id 1, :b 2}})
     (is (= (first (query!)) {:xt/id 1, :a 1, :b 2}))
 
     (testing "trying to PATCH with a NULL value"
-      (let [exc (is (thrown? Exception (sink! sink-task {:key-value 1, :value-value {:_id 1, :c nil}})))]
+      (let [exc (is (thrown? Exception (sink! sink-task {:key 1, :value {:_id 1, :c nil}})))]
         (is (and (not (instance? RetriableException exc)) (str/includes? (ex-message exc) "NULL"))))
-      (let [exc (is (thrown? Exception (sink! sink-task {:key-value 1, :value-value {:_id 1, :c {:d nil}}})))]
+      (let [exc (is (thrown? Exception (sink! sink-task {:key 1, :value {:_id 1, :c {:d nil}}})))]
         (is (not (instance? RetriableException exc)) (str/includes? (ex-message exc) "NULL")))
-      (sink! sink-task {:key-value 1, :value-value {:_id 1, :c [nil]}}))))
+      (sink! sink-task {:key 1, :value {:_id 1, :c [nil]}}))))
 
 (deftest id_mode-option
   (let [sink (fn [conf record]
@@ -53,20 +53,20 @@
                                                      (merge {:topic "foo"})))])))
         query-foo #(first (xt/q xtdb/*conn* "SELECT * FROM foo"))]
 
-    (sink {:id.mode "record_key"} {:key-value 1
+    (sink {:id.mode "record_key"} {:key 1
                                    :key-schema Schema/INT64_SCHEMA
-                                   :value-value {:_id 2, :v "v"}})
+                                   :value {:_id 2, :v "v"}})
     (is (= (query-foo) {:xt/id 1, :v "v"}))
 
     (sink {:id.mode "record_key"} (let [schema (-> (SchemaBuilder/struct)
                                                    (.field "_id" Schema/INT64_SCHEMA))]
-                                    {:key-value (->struct schema {:_id 1})
+                                    {:key (->struct schema {:_id 1})
                                      :key-schema schema
-                                     :value-value {:_id 2, :v "v"}}))
+                                     :value {:_id 2, :v "v"}}))
     (is (= (query-foo) {:xt/id 1, :v "v"}))
 
-    (sink {} {:key-value nil
-              :value-value {:_id 1 :v "v"}})
+    (sink {} {:key nil
+              :value {:_id 1 :v "v"}})
     (is (= (query-foo) {:xt/id 1, :v "v"}))))
 
 (deftest ^:manual connection-reuse
@@ -77,16 +77,16 @@
           schema (-> (SchemaBuilder/struct)
                    (.field "_id" Schema/INT64_SCHEMA))]
       (log/info "--------------- Before first sink...")
-      (sink {:key-value nil
+      (sink {:key nil
              :key-schema schema
-             :value-value {:_id 1, :v "v"}})
+             :value {:_id 1, :v "v"}})
       (log/info "--------------- Sleeping...")
       ; When configured below 10 seconds this should reuse connection. Check in logs
       (Thread/sleep 60000)
       (log/info "--------------- Before second sink...")
-      (sink {:key-value nil
+      (sink {:key nil
              :key-schema schema
-             :value-value {:_id 2, :v "v"}}))))
+             :value {:_id 2, :v "v"}}))))
 
 (deftest ^:manual check-jdbc4-isValid-works-for-XtConnection
   (with-open [conn (jdbc/get-connection xtdb/*jdbc-url*)]

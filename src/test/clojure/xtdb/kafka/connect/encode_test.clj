@@ -53,9 +53,9 @@
                                 :my_date (-> (LocalDate/now) (.atStartOfDay (ZoneId/of "UTC")) .toInstant Date/from)})
 
         record (->sink-record {:topic "my_topic"
-                               :key-value "_id_value"
+                               :key "_id_value"
                                :value-schema schema
-                               :value-value value})
+                               :value value})
 
         encoded-record (encode/encode-record-value-by-schema record)]
     (is (= nil (.valueSchema encoded-record)))

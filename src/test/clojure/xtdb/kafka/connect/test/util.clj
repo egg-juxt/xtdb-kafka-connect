@@ -18,13 +18,13 @@
       (dissoc :_valid_from :_valid_to :_system_from :_system_to))))
 
 (defn ->sink-record [{:keys [topic partition
-                             key-schema key-value
-                             value-schema value-value
+                             key-schema key
+                             value-schema value
                              offset]
                       :or {partition 0 offset 0}}]
   (SinkRecord. topic partition
-    key-schema key-value
-    value-schema value-value
+    key-schema key
+    value-schema value
     offset))
 
 (defn struct-put-all [^Struct s m]
