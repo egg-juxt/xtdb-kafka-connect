@@ -11,6 +11,7 @@ internal const val CONNECTION_URL_CONFIG: String = "connection.url"
 internal const val INSERT_MODE_CONFIG: String = "insert.mode"
 internal const val ID_MODE_CONFIG: String = "id.mode"
 internal const val TABLE_NAME_FORMAT_CONFIG: String = "table.name.format"
+internal const val MAX_CONCURRENT = "max.concurrent"
 internal const val MAX_RETRIES = "max.retries"
 internal const val RETRY_BACKOFF_MS = "retry.backoff.ms"
 
@@ -44,6 +45,10 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
         "A format string for the destination table name, which may contain `\${topic}` as a placeholder for the originating topic name."
     )
     .define(
+        MAX_CONCURRENT, INT, 1, Importance.MEDIUM,
+        "Number of concurrent write operations. Applies only if `insert.mode` = `patch`."
+    )
+    .define(
         MAX_RETRIES, INT, 2, Importance.LOW,
         "The maximum number of times to retry on errors before failing the task."
     )
@@ -57,6 +62,7 @@ data class XtdbSinkConfig(
     val insertMode: String,
     val idMode: String,
     val tableNameFormat: String,
+    val maxConcurrent: Int,
     val maxRetries: Int,
     val retryBackoffMs: Int,
 ) {
@@ -70,6 +76,7 @@ data class XtdbSinkConfig(
                 insertMode = parsedConfig.getString(INSERT_MODE_CONFIG),
                 idMode = parsedConfig.getString(ID_MODE_CONFIG),
                 tableNameFormat = parsedConfig.getString(TABLE_NAME_FORMAT_CONFIG),
+                maxConcurrent = parsedConfig.getInt(MAX_CONCURRENT),
                 maxRetries = parsedConfig.getInt(MAX_RETRIES),
                 retryBackoffMs = parsedConfig.getInt(RETRY_BACKOFF_MS),
             )

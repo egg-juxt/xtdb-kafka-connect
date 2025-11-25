@@ -3,6 +3,7 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [next.jdbc :as jdbc]
+            [xtdb.kafka.connect.concurrent-queue-map :as queue-map]
             [xtdb.kafka.connect.util :refer [sinkRecord-original-offset]])
   (:import (clojure.lang Atom ExceptionInfo)
            (java.sql SQLException SQLTransientConnectionException)
@@ -121,7 +122,8 @@
                                  (throw (IllegalArgumentException. "PATCH doesn't allow setting NULL values")))
                                :patch))
                :table table
-               :params [(assoc doc :_id id)]})
+               :params [(-> doc
+                          (assoc :_id id))]})
 
             (= "record_key" (.getIdMode conf))
             (let [id (find-record-key-eid conf record)]
@@ -133,29 +135,57 @@
 
       (->> (log/trace "tx op:")))))
 
-(defn submit-sink-records* [connectable props records]
+(defn submit-prevent-reordering [connectable sql ops]
+  (let [in-progress (queue-map/create)
+        fs (doall
+             (for [{[doc] :params} ops]
+               (let [id (:_id doc)
+                     first-added? (queue-map/add!-was-absent? in-progress id doc)]
+                 (if-not first-added?
+                   (delay nil)
+                   (let [conn0 (jdbc/get-connection connectable)] ; blocks loop for available connection
+                     (future
+                       ; TODO deal with exceptions here
+                       (with-open [conn conn0]
+                         (doseq [doc (take-while some?
+                                       (repeatedly #(queue-map/pop-or-dissoc! in-progress id)))]
+                           (log/trace "sending..." doc conn)
+                           (jdbc/execute! conn [sql doc])
+                           (log/trace "sent" doc)))))))))]
+    (doseq [f fs]
+      @f)
+    (log/debug "submitted without reordering" (count fs))))
+
+(defn submit-sink-records* [connectable, ^XtdbSinkConfig conf, records]
   (log/debug "processing records..." {:count (count records)})
   (when (seq records)
     (let [start (System/nanoTime)
           ops (doall ; throw any transformation exceptions now, before storing anything in the database
                 (->> records
-                  (map (partial record->op props))))]
-      (with-open [conn (jdbc/get-connection connectable)]
-        (doseq [batch (->> ops
-                        (partition-by (juxt :op :table)))]
-          (let [{:keys [op table]} (first batch)
-                sql (str/join " " (case op
-                                    :insert ["INSERT INTO" table "RECORDS ?"]
-                                    :patch ["PATCH INTO" table "RECORDS ?"]
-                                    :delete ["DELETE FROM" table "WHERE _id = ?"]))
-                exec-batch! (fn [conn]
-                              (with-open [prep-stmt (jdbc/prepare conn [sql])]
-                                (jdbc/execute-batch! prep-stmt (map :params batch))))]
-            (condp contains? op
-              #{:insert :delete} (jdbc/with-transaction [txn conn]
-                                   (exec-batch! txn))
-              #{:patch} (exec-batch! conn))
-            (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+                  (map (partial record->op conf))))]
+      (doseq [batch (->> ops
+                      (partition-by (juxt :op :table)))]
+        (let [{:keys [op table]} (first batch)
+              sql (str/join " " (case op
+                                  :insert ["INSERT INTO" table "RECORDS ?"]
+                                  :patch ["PATCH INTO" table "RECORDS ?"]
+                                  :delete ["DELETE FROM" table "WHERE _id = ?"]))
+              exec-batch! (fn [conn]
+                            (with-open [prep-stmt (jdbc/prepare conn [sql])]
+                              (jdbc/execute-batch! prep-stmt (map :params batch))))]
+          (condp contains? op
+            #{:insert :delete}
+            (with-open [conn (jdbc/get-connection connectable)]
+              (jdbc/with-transaction [txn conn]
+                (exec-batch! txn)))
+
+            #{:patch}
+            (if-not (> (.getMaxConcurrent conf) 1)
+              (with-open [conn (jdbc/get-connection connectable)]
+                (exec-batch! conn))
+              (submit-prevent-reordering connectable sql ops)))
+
+          (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)})))
       (log/debug "committed records" {:count (count records)
                                       :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))
 

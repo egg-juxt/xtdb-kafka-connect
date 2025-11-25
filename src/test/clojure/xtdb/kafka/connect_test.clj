@@ -6,8 +6,7 @@
             [xtdb.api :as xt]
             [xtdb.kafka.connect.test.util :refer [->sink-record ->struct]]
             [xtdb.test.xtdb-fixture :as xtdb])
-  (:import (com.zaxxer.hikari HikariDataSource)
-           (org.apache.kafka.connect.data Schema SchemaBuilder)
+  (:import (org.apache.kafka.connect.data Schema SchemaBuilder)
            (org.apache.kafka.connect.errors RetriableException)
            (xtdb.kafka.connect XtdbSinkTask)))
 
@@ -48,6 +47,22 @@
       (let [exc (is (thrown? Exception (sink! sink-task {:key 1, :value {:_id 1, :c {:d nil}}})))]
         (is (not (instance? RetriableException exc)) (str/includes? (ex-message exc) "NULL")))
       (sink! sink-task {:key 1, :value {:_id 1, :c [nil]}}))))
+
+(deftest ^:manual patch_concurrent
+  (with-open [sink-task (start-sink! {:insert.mode "patch"
+                                      :max.concurrent (int 3)})]
+    (let [values (for [i (range 10)
+                       j (range 2)]
+                   (if (= j 0)
+                     {:_id i, :a 0}
+                     {:_id i, :a 1, :b 1}))]
+      (.put sink-task (for [v values]
+                        (->sink-record (merge {:key (:_id v), :value v} {:topic "foo"}))))
+      (is (= (set (query!))
+             (set (for [i (range 10)]
+                    {:xt/id i, :a 1, :b 1}))))
+
+      (is (= 20 (-> (xt/q xtdb/*conn* "SELECT COUNT(*) FROM xt.txs") ffirst val))))))
 
 (deftest id_mode-option
   (with-open [sink-task (start-sink! {:id.mode "record_key"})]

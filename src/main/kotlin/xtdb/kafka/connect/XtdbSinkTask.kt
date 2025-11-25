@@ -32,8 +32,8 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
 
         dataSource = HikariDataSource().apply {
             jdbcUrl = config.connectionUrl
-            poolName = "XtdbSinkTask-single-connection"
-            maximumPoolSize = 1
+            poolName = "XtdbSinkTask"
+            maximumPoolSize = if (config.insertMode == "patch") config.maxConcurrent else 1
             minimumIdle = 0
             idleTimeout = 10000
         };
