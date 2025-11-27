@@ -141,21 +141,17 @@
                 (->> records
                   (map (partial record->op props))))]
       (with-open [conn (jdbc/get-connection connectable)]
-        (doseq [batch (->> ops
-                        (partition-by (juxt :op :table)))]
-          (let [{:keys [op table]} (first batch)
-                sql (str/join " " (case op
-                                    :insert ["INSERT INTO" table "RECORDS ?"]
-                                    :patch ["PATCH INTO" table "RECORDS ?"]
-                                    :delete ["DELETE FROM" table "WHERE _id = ?"]))
-                exec-batch! (fn [conn]
-                              (with-open [prep-stmt (jdbc/prepare conn [sql])]
-                                (jdbc/execute-batch! prep-stmt (map :params batch))))]
-            (condp contains? op
-              #{:insert :delete} (jdbc/with-transaction [txn conn]
-                                   (exec-batch! txn))
-              #{:patch} (exec-batch! conn))
-            (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+        (jdbc/with-transaction [txn conn]
+          (doseq [batch (->> ops
+                          (partition-by (juxt :op :table)))]
+            (let [{:keys [op table]} (first batch)
+                  sql (str/join " " (case op
+                                      :insert ["INSERT INTO" table "RECORDS ?"]
+                                      :patch ["PATCH INTO" table "RECORDS ?"]
+                                      :delete ["DELETE FROM" table "WHERE _id = ?"]))]
+              (with-open [prep-stmt (jdbc/prepare txn [sql])]
+                (jdbc/execute-batch! prep-stmt (map :params batch)))
+              (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)})))))
       (log/debug "committed records" {:count (count records)
                                       :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))
 
