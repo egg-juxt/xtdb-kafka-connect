@@ -141,17 +141,24 @@
                 (->> records
                   (map (partial record->op props))))]
       (with-open [conn (jdbc/get-connection connectable)]
-        (jdbc/with-transaction [txn conn]
-          (doseq [batch (->> ops
-                          (partition-by (juxt :op :table)))]
-            (let [{:keys [op table]} (first batch)
-                  sql (str/join " " (case op
-                                      :insert ["INSERT INTO" table "RECORDS ?"]
-                                      :patch ["PATCH INTO" table "RECORDS ?"]
-                                      :delete ["DELETE FROM" table "WHERE _id = ?"]))]
-              (with-open [prep-stmt (jdbc/prepare txn [sql])]
-                (jdbc/execute-batch! prep-stmt (map :params batch)))
-              (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)})))))
+        (try
+          (jdbc/with-transaction [txn conn]
+            (doseq [batch (->> ops
+                            (partition-by (juxt :op :table)))]
+              (let [{:keys [op table]} (first batch)
+                    sql (str/join " " (case op
+                                        :insert ["INSERT INTO" table "RECORDS ?"]
+                                        :patch ["PATCH INTO" table "RECORDS ?"]
+                                        :delete ["DELETE FROM" table "WHERE _id = ?"]))]
+                (with-open [prep-stmt (jdbc/prepare txn [sql])]
+                  (jdbc/execute-batch! prep-stmt (map :params batch)))
+                (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+          ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
+          (catch ExceptionInfo e
+            (throw (let [{:keys [handling rollback]} (ex-data e)]
+                     (if (and handling rollback)
+                       (doto handling (.addSuppressed rollback))
+                       e))))))
       (log/debug "committed records" {:count (count records)
                                       :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))
 
@@ -186,17 +193,5 @@
     (try
       (submit-sink-records* connectable conf records)
       (reset-tries!)
-
       (catch SQLException e
-        (handle-psql-exception e))
-
-      ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
-      (catch ExceptionInfo e
-        (let [{:keys [handling rollback]} (ex-data e)]
-          (if (and handling
-                   rollback
-                   (instance? SQLException handling))
-            (do
-              (.addSuppressed handling rollback)
-              (handle-psql-exception handling))
-            (throw e)))))))
+        (handle-psql-exception e)))))
