@@ -22,7 +22,9 @@
            (org.testcontainers.kafka ConfluentKafkaContainer)
            (org.testcontainers.utility DockerImageName)))
 
-(def kafka-version "8.0.1")
+; See compatibility between versions Confluent Platform and Apache Kafka here:
+; https://docs.confluent.io/platform/current/installation/versions-interoperability.html#cp-and-apache-ak-compatibility
+(def cp-kafka-version "8.0.1") ; compatible with Apache Kafka 4.0.x
 
 (defn with-env [^Container c m]
   (-> (fn [c k v]
@@ -42,7 +44,7 @@
   :stop (.close xtdb))
 
 (defstate ^{:on-reload :noop} kafka
-  :start (doto (ConfluentKafkaContainer. (DockerImageName/parse (str "confluentinc/cp-kafka:" kafka-version)))
+  :start (doto (ConfluentKafkaContainer. (DockerImageName/parse (str "confluentinc/cp-kafka:" cp-kafka-version)))
            (.withExposedPorts (into-array [(int 9092)]))
            (.withNetwork Network/SHARED)
            (.start))
@@ -75,7 +77,7 @@
 
 (defstate ^{:on-reload :noop} connect
   :start (let [plugin-path "/usr/local/share/xtdb-plugin"
-               container (doto (GenericContainer. (DockerImageName/parse (str "confluentinc/cp-kafka-connect:" kafka-version)))
+               container (doto (GenericContainer. (DockerImageName/parse (str "confluentinc/cp-kafka-connect:" cp-kafka-version)))
                            (.dependsOn [kafka])
                            (.withNetwork (.getNetwork kafka))
                            (.withExposedPorts (into-array [(int 8083)]))
@@ -107,7 +109,7 @@
   :stop (.close connect))
 
 (defstate ^{:on-reload :noop} schema-registry
-  :start (doto (GenericContainer. (str "confluentinc/cp-schema-registry:" kafka-version))
+  :start (doto (GenericContainer. (str "confluentinc/cp-schema-registry:" cp-kafka-version))
            (.dependsOn [kafka])
            (.withNetwork (.getNetwork kafka))
            (.withExposedPorts (into-array [(int 8081)]))
