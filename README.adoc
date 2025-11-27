@@ -274,12 +274,11 @@ Example: `"jdbc:xtdb://my_host:5432/xtdb"`
 
 One of:
 
-`record_key`::
-The record key must be either a Struct or a primitive value. If the key is a struct its `_id` field will be selected.
-(Required if you want https://kafka.apache.org/documentation/#design_compactionbasics[tombstones] to delete records).
-
 `record_value`::
-Its `_id` field will be selected
+(default) The `_id` field of the record value will be used
+
+`record_key`::
+(required if you want https://kafka.apache.org/documentation/#design_compactionbasics[tombstones] to delete records) The record key must be either a Struct or a primitive value. If the key is a struct its `_id` field will be used.
 
 |`table.name.format`
 |A format string for the destination table name, which may contain `${topic}` as a placeholder for the originating topic name.

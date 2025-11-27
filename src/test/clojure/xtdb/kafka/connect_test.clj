@@ -9,6 +9,7 @@
   (:import (com.zaxxer.hikari HikariDataSource)
            (org.apache.kafka.connect.data Schema SchemaBuilder)
            (org.apache.kafka.connect.errors RetriableException)
+           (org.apache.kafka.connect.sink SinkTaskContext)
            (xtdb.kafka.connect XtdbSinkTask)))
 
 (declare thrown?)
@@ -18,6 +19,7 @@
 
 (defn start-sink! [conf]
   (doto (XtdbSinkTask.)
+    (.initialize (reify SinkTaskContext))
     (.start (-> {:connection.url xtdb/*jdbc-url*}
               (merge conf)
               (update-keys name)))))

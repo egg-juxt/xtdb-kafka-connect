@@ -82,16 +82,16 @@
 
       (instance? Struct r-key)
       (or (-> r-key struct->edn :_id)
-          (throw (IllegalArgumentException. "no 'id' field in record key")))
+          (throw (IllegalArgumentException. "no id field in record key")))
 
       (map? r-key)
       (or (-> r-key :_id)
-          (throw (IllegalArgumentException. "no 'id' field in record key"))))))
+          (throw (IllegalArgumentException. "no id field in record key"))))))
 
 (defn- find-record-value-eid [^XtdbSinkConfig _conf, ^SinkRecord _record, doc]
   (if-some [id (:_id doc)]
     id
-    (throw (IllegalArgumentException. "no 'id' field in record value"))))
+    (throw (IllegalArgumentException. "no id field in record value"))))
 
 (defn- find-eid [^XtdbSinkConfig conf ^SinkRecord record doc]
   (case (.getIdMode conf)
@@ -116,7 +116,7 @@
               {:op (case (.getInsertMode conf)
                      "insert" :insert
                      "patch" (do
-                               ; remove the following assert when XTDB's PATCH supports setting NULLs:
+                               ; Remove the following assert when XTDB's PATCH supports setting NULLs:
                                (when (some nil? (tree-seq map? vals doc))
                                  (throw (IllegalArgumentException. "PATCH doesn't allow setting NULL values")))
                                :patch))
@@ -133,34 +133,45 @@
 
       (->> (log/trace "tx op:")))))
 
-(defn submit-sink-records* [connectable props records]
-  (log/debug "processing records..." {:count (count records)})
+(defn submit-sink-records* [^SinkTaskContext context
+                            connectable
+                            ^XtdbSinkConfig conf
+                            records]
   (when (seq records)
-    (let [start (System/nanoTime)
-          ops (doall ; throw any transformation exceptions now, before storing anything in the database
-                (->> records
-                  (map (partial record->op props))))]
-      (with-open [conn (jdbc/get-connection connectable)]
-        (try
-          (jdbc/with-transaction [txn conn]
-            (doseq [batch (->> ops
-                            (partition-by (juxt :op :table)))]
-              (let [{:keys [op table]} (first batch)
-                    sql (str/join " " (case op
-                                        :insert ["INSERT INTO" table "RECORDS ?"]
-                                        :patch ["PATCH INTO" table "RECORDS ?"]
-                                        :delete ["DELETE FROM" table "WHERE _id = ?"]))]
-                (with-open [prep-stmt (jdbc/prepare txn [sql])]
-                  (jdbc/execute-batch! prep-stmt (map :params batch)))
-                (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
-          ; Special handling of next.jdbc exception when rolling back a transaction. See next.jdbc.transaction/transact*
-          (catch ExceptionInfo e
-            (throw (let [{:keys [handling rollback]} (ex-data e)]
-                     (if (and handling rollback)
-                       (doto handling (.addSuppressed rollback))
-                       e))))))
-      (log/debug "committed records" {:count (count records)
-                                      :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))
+    (let [record-ops (doall ; Find any record issues now
+                       (for [record records]
+                         (try
+                           (merge {:record record}
+                                  (record->op conf record))
+                           (catch Exception e
+                             (throw (ex-info nil {:type ::record-data-error} e))))))]
+      (when (seq record-ops)
+        (let [start (System/nanoTime)]
+          (with-open [conn (jdbc/get-connection connectable)]
+            (try
+              (jdbc/with-transaction [txn conn]
+                (doseq [batch (->> record-ops
+                                (partition-by (juxt :op :table)))]
+                  (let [{:keys [op table]} (first batch)
+                        sql (str/join " " (case op
+                                            :insert ["INSERT INTO" table "RECORDS ?"]
+                                            :patch ["PATCH INTO" table "RECORDS ?"]
+                                            :delete ["DELETE FROM" table "WHERE _id = ?"]))]
+                    (with-open [prep-stmt (jdbc/prepare txn [sql])]
+                      (jdbc/execute-batch! prep-stmt (map :params batch)))
+                    (log/debug "sent batch" {:op op, :table table, :batch-size (count batch)}))))
+              ; Unwrap next.jdbc ExceptionInfo when rollback fails (See next.jdbc.transaction/transact*):
+              (catch ExceptionInfo e
+                (throw (let [{:keys [handling rollback]} (ex-data e)]
+                         (if (and handling rollback)
+                           (doto handling (.addSuppressed rollback))
+                           e))))))
+          (log/debug "committed records" {:record-count (count record-ops)
+                                          :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))))
+
+(defn transient-connection-error? [^SQLException e]
+  (or (instance? SQLTransientConnectionException e)
+      (= "08001" (.getSQLState e))))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [^SinkTaskContext context
@@ -168,30 +179,46 @@
                            ^XtdbSinkConfig conf,
                            ^Atom remaining-tries
                            ^Collection records]
-  (letfn [(reset-tries! []
-            (reset! remaining-tries (inc (.getMaxRetries conf))))
+  (letfn [(throw-retry! [cause transient?]
+            (let [retry-backoff-ms (.getRetryBackoffMs conf)
+                  exc-data (merge (when-not transient?
+                                    {:remaining-retries @remaining-tries})
+                                  {:retry-backoff-ms retry-backoff-ms
+                                   :first-offset (some-> records first sinkRecord-original-offset)
+                                   :record-count (count records)})]
+              (.timeout context retry-backoff-ms)
+              (throw (RetriableException. (str exc-data " " cause) cause))))
 
-          (handle-psql-exception [^SQLException e]
-            (let [transient-connection-error? (or (instance? SQLTransientConnectionException e)
-                                                  (= "08001" (.getSQLState e)))]
-              (if transient-connection-error?
-                (reset-tries!)
-                (swap! remaining-tries dec))
+          (submit-unrolled! [cause records]
+            (if-let [reporter (.errantRecordReporter context)]
+              (do
+                (log/error cause "Submitting in batches failed. Trying to submit single records...")
+                (doseq [record records]
+                  (try
+                    (submit-sink-records* context connectable conf [record])
+                    (catch ExceptionInfo e
+                      (if (-> e ex-data :type (= ::record-data-error))
+                        (.report reporter record (ex-cause e))
+                        (throw e)))
+                    (catch SQLException e
+                      (.report reporter record e)))))
+              (throw cause)))]
 
-              (if (pos? @remaining-tries)
-                (let [retry-backoff-ms (.getRetryBackoffMs conf)]
-                  (.timeout context retry-backoff-ms)
-                  (throw (RetriableException. (str (merge (when-not transient-connection-error?
-                                                            {:remaining-retries @remaining-tries})
-                                                          {:retry-backoff-ms retry-backoff-ms
-                                                           :record-count (count records)
-                                                           :first-offset (some-> records first sinkRecord-original-offset)})
-                                                   " "
-                                                   e)
-                                              e)))
-                (throw e))))]
-    (try
-      (submit-sink-records* connectable conf records)
-      (reset-tries!)
-      (catch SQLException e
-        (handle-psql-exception e)))))
+    (log/debug "processing records..." {:count (count records)})
+    (let [reset-tries? (atom true)]
+      (try
+        (swap! remaining-tries dec)
+        (submit-sink-records* context connectable conf records)
+        (catch ExceptionInfo e
+          (if (-> e ex-data :type (= ::record-data-error))
+            (submit-unrolled! (ex-cause e) records)
+            (throw e)))
+        (catch SQLException e
+          (let [transient? (transient-connection-error? e)]
+            (reset! reset-tries? transient?)
+            (if (pos? @remaining-tries)
+              (throw-retry! e transient?)
+              (submit-unrolled! e records))))
+        (finally
+          (when @reset-tries?
+            (reset! remaining-tries (inc (.getMaxRetries conf)))))))))

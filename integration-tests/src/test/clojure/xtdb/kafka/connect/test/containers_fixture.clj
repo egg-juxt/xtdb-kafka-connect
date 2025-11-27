@@ -10,12 +10,15 @@
            (io.confluent.kafka.serializers.json KafkaJsonSchemaSerializer)
            (java.io File)
            (java.lang AutoCloseable)
+           (java.time Duration)
            (java.util Collection Map Properties)
            (java.util.concurrent ExecutionException)
            (org.apache.kafka.clients.admin AdminClient)
+           (org.apache.kafka.clients.consumer KafkaConsumer)
            (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
+           (org.apache.kafka.common PartitionInfo TopicPartition)
            (org.apache.kafka.common.errors UnknownTopicOrPartitionException)
-           (org.apache.kafka.common.serialization StringSerializer)
+           (org.apache.kafka.common.serialization StringDeserializer StringSerializer)
            (org.gradle.tooling GradleConnector)
            (org.testcontainers.containers BindMode Container GenericContainer Network)
            (org.testcontainers.containers.wait.strategy Wait)
@@ -129,6 +132,10 @@
 (defn start-xtdb! []
   (mount/start #'xtdb))
 
+(defn reload-connector! []
+  (mount/stop #'connector-jar-file #'connect)
+  (mount/start #'connector-jar-file #'connect))
+
 (def ^:dynamic *xtdb-db*)
 (def ^:dynamic *xtdb-conn*)
 
@@ -181,31 +188,45 @@
     (close [_]
       (http/delete (str (connect-api-url) "/connectors/" topics))
       (try
-        (delete-topics! (str/split topics #","))
+        (delete-topics! (conj (str/split topics #",") "dlq"))
         (catch ExecutionException e
           (if (instance? UnknownTopicOrPartitionException (ex-cause e))
             (println "unknown topic to delete" topics)
             (throw e)))))))
 
+(defn list-topic [topic]
+  (with-open [consumer (KafkaConsumer.
+                         ^Map {"bootstrap.servers" (kafka-endpoint-on-host)
+                               "key.deserializer" (.getName StringDeserializer)
+                               "value.deserializer" (.getName StringDeserializer)})]
+    (let [partitions (for [^PartitionInfo p (.partitionsFor consumer topic)]
+                       (TopicPartition. (.topic p) (.partition p)))]
+      (.assign consumer partitions)
+      (.seekToBeginning consumer partitions))
+    (seq (.poll consumer (Duration/ofSeconds 3)))))
+
+(defn list-dlq []
+  (list-topic "dlq"))
+
 (defn send-record! [topic k v & [{:keys [value-serializer schema-id]}]]
-  (with-open [producer (KafkaProducer. ^Map
-                         (merge {"bootstrap.servers" (kafka-endpoint-on-host)
-                                 "key.serializer" (.getName StringSerializer)}
+  (with-open [producer (KafkaProducer.
+                         ^Map (merge {"bootstrap.servers" (kafka-endpoint-on-host)
+                                      "key.serializer" (.getName StringSerializer)}
 
-                                (if-not value-serializer
-                                  {"value.serializer" (.getName StringSerializer)}
+                                     (if-not value-serializer
+                                       {"value.serializer" (.getName StringSerializer)}
 
-                                  {"value.serializer" (case value-serializer
-                                                        :json-schema (.getName KafkaJsonSchemaSerializer)
-                                                        :avro (.getName KafkaAvroSerializer))
-                                   "schema.registry.url" (schema-registry-base-url)
-                                   "use.schema.id" (do
-                                                     (when-not (int? schema-id)
-                                                       (throw (IllegalArgumentException. "schema-id required")))
-                                                     (int schema-id))
-                                   "id.compatibility.strict" false
-                                   "auto.register.schemas" false
-                                   "use.latest.version" true})))]
+                                       {"value.serializer" (case value-serializer
+                                                             :json-schema (.getName KafkaJsonSchemaSerializer)
+                                                             :avro (.getName KafkaAvroSerializer))
+                                        "schema.registry.url" (schema-registry-base-url)
+                                        "use.schema.id" (do
+                                                          (when-not (int? schema-id)
+                                                            (throw (IllegalArgumentException. "schema-id required")))
+                                                          (int schema-id))
+                                        "id.compatibility.strict" false
+                                        "auto.register.schemas" false
+                                        "use.latest.version" true})))]
     (-> (.send producer (ProducerRecord. topic k v))
         (.get))))
 
