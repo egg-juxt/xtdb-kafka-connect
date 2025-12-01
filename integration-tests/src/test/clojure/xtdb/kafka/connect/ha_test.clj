@@ -1,6 +1,8 @@
 (ns xtdb.kafka.connect.ha-test
   (:require [clojure.test :refer :all]
             [jsonista.core :as json]
+            [next.jdbc :as jdbc]
+            [xtdb.api :as xt]
             [xtdb.kafka.connect.test.containers-fixture :as fixture]))
 
 (use-fixtures :once fixture/with-containers)
@@ -65,14 +67,16 @@
                     {:topics builtin-table-name
                      :value.converter "org.apache.kafka.connect.json.JsonConverter"
                      :transforms "xtdbEncode"
-                     :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"})]
+                     :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"
+
+                     :retry.backoff.ms 2000})]
       (fixture/send-record! builtin-table-name "1"
         (json/write-value-as-string
           {:schema {:type "struct", :fields [{:field :_id, :type "string", :optional false}]}
            :payload {:_id "1"}}))
 
       ; Must be retried until no remaining retries left
-      (Thread/sleep 50000))))
+      (Thread/sleep 10000))))
 
 (deftest ^:manual retries2
   (let [table-name "my_table"]
@@ -88,22 +92,26 @@
 
       (Thread/sleep 50000))))
 
-(deftest ^:manual xtdb_is_down
+(deftest record_sent_while_xtdb_is_down_is_inserted_when_xtdb_is_up_again
   (with-open [_ (fixture/with-connector
                   {:topics "my_table"
                    :value.converter "org.apache.kafka.connect.json.JsonConverter"
                    :transforms "xtdbEncode"
-                   :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"})]
-    (fixture/send-record! "my_table" "1"
-      (json/write-value-as-string
-        {:schema {:type "struct",
-                  :fields [{:field :_id, :type "string", :optional false}]}
-         :payload {:_id "1"}}))
+                   :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"
 
-    (Thread/sleep 5000)
-
-    (fixture/stop-xtdb!)
+                   :retry.backoff.ms 2000})]
     (try
+      (fixture/send-record! "my_table" "1"
+        (json/write-value-as-string
+          {:schema {:type "struct",
+                    :fields [{:field :_id, :type "string", :optional false}]}
+           :payload {:_id "1"}}))
+
+      (Thread/sleep 5000)
+
+      (fixture/stop-xtdb!)
+      (println "XTDB stopped")
+
       (Thread/sleep 1000)
 
       (fixture/send-record! "my_table" "2"
@@ -115,7 +123,15 @@
 
       (Thread/sleep 60000)
 
+      (println "XTDB starting...")
+      (fixture/start-xtdb!)
+      (println "XTDB started")
+
+      (Thread/sleep 30000)
+
+      (with-open [xtdb-conn2 (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
+        (is (= #{{:xt/id "2"}} ; record 1 is not there because the XTDB container has been restarted, thus resetting its contents
+               (set (xt/q xtdb-conn2 "SELECT * FROM my_table")))))
+
       (finally
         (fixture/start-xtdb!)))))
-
-

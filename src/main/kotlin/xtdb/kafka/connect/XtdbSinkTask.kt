@@ -23,12 +23,12 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
     }
 
     private lateinit var config: XtdbSinkConfig
-    private lateinit var remainingTries: Atom;
+    private lateinit var remainingRetries: Atom;
     private lateinit var dataSource: HikariDataSource;
 
     override fun start(props: Map<String, String>) {
         config = XtdbSinkConfig.parse(props)
-        remainingTries = Atom(config.maxRetries + 1)
+        remainingRetries = Atom(config.maxRetries)
 
         dataSource = HikariDataSource().apply {
             jdbcUrl = config.connectionUrl
@@ -48,7 +48,7 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
     }
 
     override fun put(sinkRecords: Collection<SinkRecord>) {
-        submitSinkRecords(this.context, dataSource, config, remainingTries, sinkRecords)
+        submitSinkRecords(this.context, dataSource, config, remainingRetries, sinkRecords)
     }
 
     override fun version(): String = XtdbSinkConnector().version()

@@ -178,19 +178,18 @@
 (defn submit-sink-records [^SinkTaskContext context
                            connectable
                            ^XtdbSinkConfig conf,
-                           ^Atom remaining-tries
+                           ^Atom remaining-retries
                            ^Collection records]
-  (letfn [(throw-retry! [cause transient?]
+  (letfn [(throw-retry! [cause & {:keys [log]}]
             (let [retry-backoff-ms (.getRetryBackoffMs conf)
-                  exc-data (merge (when-not transient?
-                                    {:remaining-retries @remaining-tries})
+                  exc-data (merge log
                                   {:retry-backoff-ms retry-backoff-ms
                                    :first-offset (some-> records first sinkRecord-original-offset)
                                    :record-count (count records)})]
               (.timeout context retry-backoff-ms)
               (throw (RetriableException. (str exc-data " " cause) cause))))
 
-          (submit-unrolled! [cause records]
+          (submit-unrolled! [cause]
             (if-let [reporter (.errantRecordReporter context)]
               (do
                 (log/error cause "Submitting in batches failed. Trying to submit single records...")
@@ -211,28 +210,29 @@
               (throw cause)))]
 
     (log/debug "processing records..." {:count (count records)})
-    (let [reset-tries? (atom true)]
+
+    (let [dec-retries? (atom false)]
       (try
-        (swap! remaining-tries dec)
         (submit-sink-records* context connectable conf records)
         (catch Exception e
           (cond
             (= ::record-data-error (-> e ex-data :type))
-            (submit-unrolled! (ex-cause e) records)
+            (submit-unrolled! (ex-cause e))
 
             (transient-connection-error? e)
-            (do
-              (reset! reset-tries? true)
-              (throw-retry! e true))
+            (throw-retry! e)
 
             (instance? SQLException e)
-            (if (pos? @remaining-tries)
-              (throw-retry! e false)
-              (submit-unrolled! e records))
+            (if (pos? @remaining-retries)
+              (do
+                (reset! dec-retries? true)
+                (throw-retry! e {:log {:remaining-retries @remaining-retries}}))
+              (submit-unrolled! e))
 
             :else
             (throw e)))
 
         (finally
-          (when @reset-tries?
-            (reset! remaining-tries (inc (.getMaxRetries conf)))))))))
+          (if @dec-retries?
+            (swap! remaining-retries dec)
+            (reset! remaining-retries (.getMaxRetries conf))))))))

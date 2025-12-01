@@ -139,11 +139,12 @@
 (def ^:dynamic *xtdb-db*)
 (def ^:dynamic *xtdb-conn*)
 
+(defn xtdb-jdbc-url-on-host []
+  (str "jdbc:xtdb://localhost:" (.getMappedPort xtdb 5432) "/" *xtdb-db*))
+
 (defn with-xtdb-conn [f]
   (binding [*xtdb-db* (random-uuid)]
-    (with-open [xtdb-conn (jdbc/get-connection (str "jdbc:xtdb://localhost:"
-                                                    (.getMappedPort xtdb 5432)
-                                                    "/" *xtdb-db*))]
+    (with-open [xtdb-conn (jdbc/get-connection (xtdb-jdbc-url-on-host))]
       (binding [*xtdb-conn* xtdb-conn]
         (f)))))
 
@@ -190,8 +191,7 @@
       (try
         (delete-topics! (conj (str/split topics #",") "dlq"))
         (catch ExecutionException e
-          (if (instance? UnknownTopicOrPartitionException (ex-cause e))
-            (println "unknown topic to delete" topics)
+          (when-not (instance? UnknownTopicOrPartitionException (ex-cause e))
             (throw e)))))))
 
 (defn list-topic [topic]
