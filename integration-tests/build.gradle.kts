@@ -23,9 +23,9 @@ dependencies {
     testImplementation("io.confluent", "kafka-json-schema-serializer", "7.6.6")
     testImplementation("io.confluent", "kafka-avro-serializer", "7.6.6")
 
-    testImplementation("org.testcontainers", "testcontainers", "1.21.3")
-    testImplementation("org.testcontainers", "kafka", "1.21.3")
-    testImplementation("org.testcontainers", "toxiproxy", "1.21.3")
+    testImplementation("org.testcontainers", "testcontainers", "2.0.2")
+    testImplementation("org.testcontainers", "testcontainers-kafka", "2.0.2")
+    testImplementation("org.testcontainers", "testcontainers-toxiproxy", "2.0.2")
 
     testImplementation("org.gradle", "gradle-tooling-api", "8.10")
 

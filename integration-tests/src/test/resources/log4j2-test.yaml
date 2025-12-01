@@ -1,0 +1,16 @@
+Configuration:
+  status: info
+  monitorInterval: 5
+
+  Appenders:
+    Console:
+      name: ConsoleAppender
+      target: SYSTEM_OUT
+      PatternLayout:
+        pattern: "%date{HH:mm:ss.SSS} [%16.16thread] %-5level %logger - %msg%n"
+
+  Loggers:
+    Root:
+      level: info
+      AppenderRef:
+        - ref: ConsoleAppender
