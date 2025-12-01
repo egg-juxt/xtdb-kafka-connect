@@ -45,7 +45,7 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
     )
     .define(
         MAX_RETRIES, INT, 2, Importance.LOW,
-        "The maximum number of times to retry on errors before failing the task."
+        "The maximum number of times to retry on non-transient errors before failing the task. Transient connection errors are retried indefinitely."
     )
     .define(
         RETRY_BACKOFF_MS, INT, 10000, Importance.LOW,

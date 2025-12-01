@@ -251,6 +251,29 @@ For the above to work, you will need to configure your connector's value convert
 }
 ----
 
+== Fault tolerance
+
+The XTDB Kafka Connector will handle errors depending on their kind:
+
+* Transient errors in the XTDB connection (such as connection closed): will be retried indefinitely.
+* Errors in record data found by the connector: records will be retried individually, see below.
+* Other errors while executing SQL statements: will be retried up to `max.retries`. Then, records will be retried individually, see below.
+* Other unexpected errors: the connector will stop.
+
+When records are retried to be ingested individually, any errors found will be reported to the Kafka Connect framework, and it may move errant records to a dead-letter queue if configured to do so. Example configuration:
+
+[source,json]
+----
+{
+  "errors.tolerance": "all",
+  "errors.log.enable": true,
+  "errors.log.include.messages": true,
+  "errors.deadletterqueue.topic.name": "dlq",
+  "errors.deadletterqueue.topic.replication.factor": 1,
+  "errors.deadletterqueue.context.headers.enable": true
+}
+----
+
 == Reference
 
 === XTDB Sink Connector
@@ -282,6 +305,12 @@ One of:
 
 |`table.name.format`
 |A format string for the destination table name, which may contain `${topic}` as a placeholder for the originating topic name.
+
+|`max.retries`
+|The maximum number of times to retry on non-transient errors before failing the task. Well-known transient errors are retried indefinitely.
+
+|`retry.backoff.ms`
+|The time in milliseconds to wait following an error before a retry attempt is made.
 
 |===
 
