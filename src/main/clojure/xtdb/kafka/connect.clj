@@ -169,9 +169,10 @@
           (log/debug "committed records" {:record-count (count record-ops)
                                           :ellapsed-ms (-> (System/nanoTime) (- start) double (/ 1000000))}))))))
 
-(defn transient-connection-error? [^SQLException e]
+(defn transient-connection-error? [e]
   (or (instance? SQLTransientConnectionException e)
-      (= "08001" (.getSQLState e))))
+      (and (instance? SQLException e)
+           (= "08001" (.getSQLState e)))))
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn submit-sink-records [^SinkTaskContext context
@@ -196,12 +197,17 @@
                 (doseq [record records]
                   (try
                     (submit-sink-records* context connectable conf [record])
-                    (catch ExceptionInfo e
-                      (if (-> e ex-data :type (= ::record-data-error))
+                    (catch Exception e
+                      ; Do not retry at this point, as some records may have moved to the dlq already.
+                      (cond
+                        (= ::record-data-error (-> e ex-data :type))
                         (.report reporter record (ex-cause e))
-                        (throw e)))
-                    (catch SQLException e
-                      (.report reporter record e)))))
+
+                        (instance? SQLException e)
+                        (.report reporter record e)
+
+                        :else
+                        (throw e))))))
               (throw cause)))]
 
     (log/debug "processing records..." {:count (count records)})
@@ -209,16 +215,24 @@
       (try
         (swap! remaining-tries dec)
         (submit-sink-records* context connectable conf records)
-        (catch ExceptionInfo e
-          (if (-> e ex-data :type (= ::record-data-error))
+        (catch Exception e
+          (cond
+            (= ::record-data-error (-> e ex-data :type))
             (submit-unrolled! (ex-cause e) records)
-            (throw e)))
-        (catch SQLException e
-          (let [transient? (transient-connection-error? e)]
-            (reset! reset-tries? transient?)
+
+            (transient-connection-error? e)
+            (do
+              (reset! reset-tries? true)
+              (throw-retry! e true))
+
+            (instance? SQLException e)
             (if (pos? @remaining-tries)
-              (throw-retry! e transient?)
-              (submit-unrolled! e records))))
+              (throw-retry! e false)
+              (submit-unrolled! e records))
+
+            :else
+            (throw e)))
+
         (finally
           (when @reset-tries?
             (reset! remaining-tries (inc (.getMaxRetries conf)))))))))
