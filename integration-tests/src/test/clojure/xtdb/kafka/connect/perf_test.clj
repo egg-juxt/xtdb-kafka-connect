@@ -52,5 +52,4 @@
 
       (println "#txs" (xt/q *xtdb-conn* ["SELECT COUNT(*) AS c FROM xt.txs"])))
 
-      (Thread/sleep ^long (* 5 lag-ms))))
-
+    (Thread/sleep ^long (* 5 lag-ms))))
