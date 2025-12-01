@@ -1,8 +1,7 @@
 (ns xtdb.kafka.connect.ha-test
   (:require [clojure.test :refer :all]
             [jsonista.core :as json]
-            [xtdb.kafka.connect.test.containers-fixture :as fixture])
-  (:import (org.apache.kafka.clients.consumer ConsumerRecord)))
+            [xtdb.kafka.connect.test.containers-fixture :as fixture]))
 
 (use-fixtures :once fixture/with-containers)
 (use-fixtures :each fixture/with-xtdb-conn)
@@ -22,30 +21,36 @@
                      :errors.log.include.messages true
                      :errors.deadletterqueue.topic.name "dlq"
                      :errors.deadletterqueue.topic.replication.factor 1
-                     :errors.deadletterqueue.context.headers.enable true})]
+                     :errors.deadletterqueue.context.headers.enable true
+
+                     :retry.backoff.ms 2000
+
+                     ; consume the test records below as a batch, not one-by-one
+                     :consumer.override.fetch.min.bytes (* 10 1024 1024)})]
       (let [value1-ok {:schema {:type "struct", :fields [{:field "_id", :type "int32", :optional false}]}
                        :payload {:_id 1}}
-            value-no-id {:schema {:type "struct", :fields [{:field "a", :type "string", :optional false}]}
-                         :payload {:a "1"}}
-            value-float-id {:schema {:type "struct", :fields [{:field "_id", :type "float", :optional false}]}
-                            :payload {:_id 1.1}}
+            value-sql-exception {:schema {:type "struct", :fields [{:field "_id", :type "float", :optional false}]}
+                                 :payload {:_id 1.1}}
+            value-record-data-exception {:schema {:type "struct", :fields [{:field "a", :type "string", :optional false}]}
+                                         :payload {:a "1"}}
             value2-ok {:schema {:type "struct", :fields [{:field "_id", :type "int32", :optional false}]}
                        :payload {:_id 2}}]
-        (doseq [v [value1-ok value-no-id value-float-id value2-ok]]
+        (doseq [v [value1-ok value-sql-exception value-record-data-exception value2-ok]]
           (fixture/send-record! table-name
             (or (:_id v) "none")
             (json/write-value-as-string v)))
-        (Thread/sleep 35000) ; wait for 3 tries, 10 seconds between each
+        (Thread/sleep 2000)
         (let [dlq-records (fixture/list-dlq)]
           (is (= 2 (count dlq-records)))
-          (is (= value-no-id (-> dlq-records first .value (json/read-value json/keyword-keys-object-mapper))))
-          (is (= value-float-id (-> dlq-records second .value (json/read-value json/keyword-keys-object-mapper))))
+          (is (= value-sql-exception (-> dlq-records (first) (.value) (json/read-value json/keyword-keys-object-mapper))))
+          (is (= value-record-data-exception (-> dlq-records (second) (.value) (json/read-value json/keyword-keys-object-mapper))))
           (def dlq-records (seq (fixture/list-dlq))))))))
 
 (comment
   (for [r dlq-records]
     {:value (-> r .value (json/read-value json/keyword-keys-object-mapper) (get :payload))
-     :msg (-> r .headers (.lastHeader "__connect.errors.exception.message") .value (String.))})
+     :msg (-> r .headers (.lastHeader "__connect.errors.exception.message") .value (String.))
+     :topic (-> r .headers (.lastHeader "__connect.errors.topic") .value (String.))})
 
   (->> dlq-records last (#(do {:headers (for [h (.headers %)]
                                           [(.key h) (-> (.value h) (String.))])
