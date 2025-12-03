@@ -293,7 +293,7 @@ Configuration options:
 Example: `"jdbc:xtdb://my_host:5432/xtdb"`
 
 |`insert.mode`
-|The insertion mode to use. Supported modes are ``insert`` and ``patch``.
+|The insertion mode to use. Supported modes are ``insert`` (default) and ``patch``.
 
 |`id.mode`
 |Where to get the `_id` from.
