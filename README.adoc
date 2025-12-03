@@ -292,6 +292,9 @@ Configuration options:
 
 Example: `"jdbc:xtdb://my_host:5432/xtdb"`
 
+|`insert.mode`
+|The insertion mode to use. Supported modes are ``insert`` and ``patch``.
+
 |`id.mode`
 |Where to get the `_id` from.
 
@@ -304,7 +307,7 @@ One of:
 (required if you want https://kafka.apache.org/documentation/#design_compactionbasics[tombstones] to delete records) The record key must be either a Struct or a primitive value. If the key is a struct its `_id` field will be used.
 
 |`table.name.format`
-|A format string for the destination table name, which may contain `${topic}` as a placeholder for the originating topic name.
+|A format string for the destination table name, which may contain `$\{topic}` as a placeholder for the originating topic name.
 
 |`max.retries`
 |The maximum number of times to retry on non-transient errors before failing the task. Well-known transient errors are retried indefinitely.
