@@ -53,6 +53,31 @@
             :my_int16 :i16
             :my_timestamptz [:timestamp-tz :micro "Z"]})))) ; TODO: should be UTC?
 
+(deftest patch_with_optional_fields
+  (xt/execute-tx *xtdb-conn* [[:put-docs :my_table {:xt/id "my_id"
+                                                    :my_string_1 "my_old_string_value_1"
+                                                    :my_string_2 "my_old_string_value_2"}]])
+  (with-open [_ (fixture/with-connector
+                  {:topics "my_table"
+                   :value.converter "org.apache.kafka.connect.json.JsonConverter"
+                   :insert.mode "patch"
+                   :transforms "xtdbEncode"
+                   :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"})]
+    (fixture/send-record! "my_table" "my_id"
+      (json/write-value-as-string
+        {:schema {:type "struct",
+                  :fields [{:field :_id, :type "string", :optional false}
+                           {:field :my_string_1, :type "string", :optional false}
+                           {:field :my_string_2, :type "string", :optional true}]}
+         :payload {:_id "my_id"
+                   :my_string_1 "my_new_string_value_1"}}))
+
+    (Thread/sleep 10000)
+
+    (is (= (set (xt/q *xtdb-conn* "SELECT * FROM my_table FOR VALID_TIME ALL"))
+           (set [{:xt/id "my_id", :my-string-1 "my_old_string_value_1", :my-string-2 "my_old_string_value_2"}
+                 {:xt/id "my_id", :my-string-1 "my_new_string_value_1", :my-string-2 "my_old_string_value_2"}])))))
+
 (defn await-readings-result []
   (let [timeout 5000]
     (Thread/sleep timeout)

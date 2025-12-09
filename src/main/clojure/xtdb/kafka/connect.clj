@@ -115,11 +115,7 @@
                   id (find-eid conf record doc)]
               {:op (case (.getInsertMode conf)
                      "insert" :insert
-                     "patch" (do
-                               ; Remove the following assert when XTDB's PATCH supports setting NULLs:
-                               (when (some nil? (tree-seq map? vals doc))
-                                 (throw (IllegalArgumentException. "PATCH doesn't allow setting NULL values")))
-                               :patch))
+                     "patch" :patch)
                :table table
                :params [(assoc doc :_id id)]})
 
