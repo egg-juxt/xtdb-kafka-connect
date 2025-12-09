@@ -8,9 +8,6 @@
 (use-fixtures :once fixture/with-containers)
 (use-fixtures :each fixture/with-xtdb-conn)
 
-(comment
-  (fixture/reload-connector!))
-
 (deftest errors_go_to_dead-letter-queue_once_and_in_the_same_order
   (let [table-name "foo"]
     (with-open [_ (fixture/with-connector

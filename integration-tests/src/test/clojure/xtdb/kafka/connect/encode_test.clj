@@ -10,12 +10,6 @@
            (java.time.temporal ChronoUnit)))
 
 (use-fixtures :once fixture/with-containers)
-(comment ; For dev
-  (fixture/run-permanently!)
-  (do
-    (fixture/stop-permanently!)
-    (fixture/run-permanently!)))
-
 (use-fixtures :each fixture/with-xtdb-conn)
 
 (deftest ingest_all_types_with_in-band_connect-schema

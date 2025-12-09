@@ -7,10 +7,6 @@
             [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record]]))
 
 (use-fixtures :once fixture/with-containers)
-(comment ; For dev
-  (fixture/run-permanently!)
-  (fixture/stop-permanently!))
-
 (use-fixtures :each fixture/with-xtdb-conn)
 
 (deftest ingest_record_with_in-band_connect-schema

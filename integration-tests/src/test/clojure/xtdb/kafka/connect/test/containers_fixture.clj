@@ -241,3 +241,7 @@
                                                              (string? schema) schema
                                                              (map? schema) (json/write-value-as-string schema))})})]
     (-> resp :body json/read-value (get "id"))))
+
+; For dev
+(comment
+  (reload-connector!))
