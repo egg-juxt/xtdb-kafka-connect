@@ -11,6 +11,7 @@ internal const val CONNECTION_URL_CONFIG: String = "connection.url"
 internal const val INSERT_MODE_CONFIG: String = "insert.mode"
 internal const val ID_MODE_CONFIG: String = "id.mode"
 internal const val TABLE_NAME_FORMAT_CONFIG: String = "table.name.format"
+internal const val TABLE_NAME_MAP_CONFIG: String = "table.name.map"
 internal const val MAX_RETRIES = "max.retries"
 internal const val RETRY_BACKOFF_MS = "retry.backoff.ms"
 
@@ -22,6 +23,36 @@ private class EnumValidator(private val validValues: Set<String>) : Validator {
     }
 
     override fun toString(): String = validValues.toString()
+}
+
+fun parseToMap(input: String): Map<String, String> {
+    val entries = input
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() } // ignore redundant commas
+        .map { entryStr ->
+            val entryElems = entryStr.split(":").map(String::trim)
+            require(entryElems.size == 2 && entryElems.all { it.isNotEmpty() }) { "Invalid entry: $entryStr" }
+            entryElems[0] to entryElems[1]
+        }
+
+    return buildMap {
+        for ((k, v) in entries) {
+            require(!containsKey(k)) { "Duplicate topic: $k"}
+            put(k, v)
+        }
+    }
+}
+
+private object MapValidator : Validator {
+    override fun ensureValid(name: String?, value: Any?) {
+        try {
+            require(value is String) { "must be a string" }
+            parseToMap(value)
+        } catch (e: IllegalArgumentException) {
+            throw ConfigException(name, value, e.message)
+        }
+    }
 }
 
 internal val CONFIG_DEF: ConfigDef = ConfigDef()
@@ -44,6 +75,11 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
         "A format string for the destination table name, which may contain `\${topic}` as a placeholder for the originating topic name."
     )
     .define(
+        TABLE_NAME_MAP_CONFIG, STRING, "", MapValidator, Importance.MEDIUM,
+        "Mapping between topics and destination table names, formatted using CSV as shown: " +
+                "`topic1:table1,topic2:table2`. This option has precedence over `table.name.format`."
+    )
+    .define(
         MAX_RETRIES, INT, 2, Importance.LOW,
         "The maximum number of times to retry on non-transient errors before failing the task. Transient connection errors are retried indefinitely."
     )
@@ -57,6 +93,7 @@ data class XtdbSinkConfig(
     val insertMode: String,
     val idMode: String,
     val tableNameFormat: String,
+    val tableNameMap: Map<String, String>,
     val maxRetries: Int,
     val retryBackoffMs: Int,
 ) {
@@ -70,6 +107,7 @@ data class XtdbSinkConfig(
                 insertMode = parsedConfig.getString(INSERT_MODE_CONFIG),
                 idMode = parsedConfig.getString(ID_MODE_CONFIG),
                 tableNameFormat = parsedConfig.getString(TABLE_NAME_FORMAT_CONFIG),
+                tableNameMap = parseToMap(parsedConfig.getString(TABLE_NAME_MAP_CONFIG)),
                 maxRetries = parsedConfig.getInt(MAX_RETRIES),
                 retryBackoffMs = parsedConfig.getInt(RETRY_BACKOFF_MS),
             )

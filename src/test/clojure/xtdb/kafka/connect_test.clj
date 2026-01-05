@@ -22,11 +22,12 @@
               (merge conf)
               (update-keys name)))))
 
-(defn sink! [sink-task, record]
-  (.put sink-task [(->sink-record (merge record {:topic "foo"}))]))
+(defn sink! [sink-task record]
+  (.put sink-task [(->sink-record (merge {:topic "foo"}
+                                         record))]))
 
-(defn query! []
-  (xt/q xtdb/*conn* "SELECT * FROM foo"))
+(defn query! [& table]
+  (xt/q xtdb/*conn* (str "SELECT * FROM " (or table "foo"))))
 
 (deftest insert_mode-option
   (with-open [sink-task (start-sink! {:insert.mode "insert"})]
@@ -61,6 +62,15 @@
     (sink {} {:key-value nil
               :value-value {:_id 1 :v "v"}})
     (is (= (query-foo) {:xt/id 1, :v "v"}))))
+
+(deftest table_name_map-option
+  (with-open [sink-task (start-sink! {:table.name.map "topic1:table1,topic2:table2"})]
+    (sink! sink-task {:topic "foo" :key-value 1, :value-value {:_id 0}})
+    (sink! sink-task {:topic "topic1" :key-value 1, :value-value {:_id 1}})
+    (sink! sink-task {:topic "topic2" :key-value 1, :value-value {:_id 2}})
+    (is (= (query! "foo") [{:xt/id 0}]))
+    (is (= (query! "table1") [{:xt/id 1}]))
+    (is (= (query! "table2") [{:xt/id 2}]))))
 
 (deftest ^:manual connection-reuse
   (with-open [sink-task (start-sink! {})]

@@ -47,6 +47,8 @@ dependencies {
     testImplementation("org.apache.kafka",  "connect-api", "3.9.1")
 
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+
     testRuntimeOnly("org.apache.logging.log4j", "log4j-slf4j2-impl", "2.21.1")
     testImplementation("org.slf4j", "jul-to-slf4j", "2.0.17")
 

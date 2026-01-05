@@ -313,6 +313,9 @@ One of:
 |`table.name.format`
 |A format string for the destination table name, which may contain `$\{topic}` as a placeholder for the originating topic name.
 
+|`table.name.map`
+|Mapping between topics and destination table names, formatted using CSV as shown: `topic1:table1,topic2:table2`. This option has precedence over `table.name.format`.
+
 |`max.retries`
 |The maximum number of times to retry on non-transient errors before failing the task. Well-known transient errors are retried indefinitely.
 

@@ -15,4 +15,8 @@
                      "id.mode" "invalid"})))
 
   (->config {"connection.url" "jdbc:xtdb://localhost:5432/xtdb"
-             "id.mode" "record_key"}))
+             "id.mode" "record_key"})
+
+  (t/is (thrown-with-msg? ConfigException #"table.name.map"
+          (->config {"connection.url" "jdbc:xtdb://localhost:5432/xtdb"
+                     "table.name.map" " :x1,t2:x2"}))))

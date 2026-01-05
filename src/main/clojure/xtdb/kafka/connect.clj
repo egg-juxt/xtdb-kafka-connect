@@ -102,9 +102,9 @@
   (and (nil? (.value record)) (.key record)))
 
 (defn table-name [^XtdbSinkConfig conf, ^SinkRecord record]
-  (let [topic (.topic record)
-        table-name-format (.getTableNameFormat conf)]
-    (str/replace table-name-format "${topic}" topic)))
+  (let [topic (.topic record)]
+    (or (get (.getTableNameMap conf) topic)
+        (str/replace (.getTableNameFormat conf) "${topic}" topic))))
 
 (defn record->op [^XtdbSinkConfig conf, ^SinkRecord record]
   (log/trace "sink record:" record)
