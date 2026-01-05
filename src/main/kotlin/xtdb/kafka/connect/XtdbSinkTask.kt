@@ -36,6 +36,7 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
             maximumPoolSize = 1
             minimumIdle = 0
             idleTimeout = 10000
+            connectionTimeout = 10000
         };
 
         try {

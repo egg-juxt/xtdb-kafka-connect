@@ -29,6 +29,10 @@ dependencies {
 
     testImplementation("org.gradle", "gradle-tooling-api", "8.10")
 
+    testRuntimeOnly("org.apache.logging.log4j", "log4j-core", "2.25.2")
+    testRuntimeOnly("org.apache.logging.log4j", "log4j-slf4j2-impl", "2.25.2")
+    testRuntimeOnly("com.fasterxml.jackson.dataformat", "jackson-dataformat-yaml", "2.19.1")
+
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
 }
 

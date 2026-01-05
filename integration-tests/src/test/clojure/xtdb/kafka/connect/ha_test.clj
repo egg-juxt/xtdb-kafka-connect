@@ -89,6 +89,14 @@
 
       (Thread/sleep 50000))))
 
+(defn patiently [f]
+  (let [end-time (+ (System/currentTimeMillis) 10000)]
+    (while (and (not (try
+                       (f)
+                       (catch Throwable _)))
+                (<= (System/currentTimeMillis) end-time))
+      (Thread/sleep 2000))))
+
 (deftest record_sent_while_xtdb_is_down_is_inserted_when_xtdb_is_up_again
   (with-open [_ (fixture/with-connector
                   {:topics "my_table"
@@ -118,13 +126,14 @@
            :payload {:_id "2"}}))
       (println "record sent")
 
-      (Thread/sleep 60000)
+      (Thread/sleep 30000)
 
       (println "XTDB starting...")
       (fixture/start-xtdb!)
       (println "XTDB started")
 
-      (Thread/sleep 30000)
+      (patiently #(with-open [xtdb-conn2 (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
+                    (seq (xt/q xtdb-conn2 "SELECT * FROM my_table"))))
 
       (with-open [xtdb-conn2 (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
         (is (= #{{:xt/id "2"}} ; record 1 is not there because the XTDB container has been restarted, thus resetting its contents
