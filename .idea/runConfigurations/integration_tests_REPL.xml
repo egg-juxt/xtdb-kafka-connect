@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="integration-tests REPL" type="ClojureREPL" factoryName="Remote" activateToolWindowBeforeRun="false">
+    <module name="xtdb-kafka-connect.integration-tests.test" />
+    <setting name="displayName" value="integration-tests REPL" />
+    <setting name="host" value="" />
+    <setting name="port" value="0" />
+    <setting name="replType" value="NREPL" />
+    <setting name="configType" value="PORT_FILE" />
+    <setting name="replPortFileType" value="SPECIFY" />
+    <setting name="customPortFile" value="../../.nrepl-port" />
+    <setting name="fixLineNumbers" value="false" />
+    <setting name="useHeartbeat" value="true" />
+    <setting name="focusEditor" value="false" />
+    <setting name="urlFile" value="" />
+    <method v="2" />
+  </configuration>
+</component>
