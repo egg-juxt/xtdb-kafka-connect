@@ -27,3 +27,13 @@
           (-> (org.apache.avro.Schema$Parser.)
               (.parse (json/write-value-as-string schema))))
     (avro-record-put-all m)))
+
+(defn patiently [pred f]
+  (let [end-time (+ (System/currentTimeMillis) 10000)]
+    (loop [result nil]
+      (if (and (not (pred result))
+               (<= (System/currentTimeMillis) end-time))
+        (do
+          (Thread/sleep 1000)
+          (recur (f)))
+        result))))

@@ -4,7 +4,7 @@
             [jsonista.core :as json]
             [xtdb.api :as xt]
             [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]]
-            [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record]])
+            [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record patiently]])
   (:import (java.nio ByteBuffer)
            (java.time LocalDate)
            (java.time.temporal ChronoUnit)))
@@ -32,9 +32,7 @@
                    :my_timestamptz "2020-01-01T00:00:00Z"
                    :_valid_from "2020-01-02T00:00:00Z"}}))
 
-    (Thread/sleep 10000)
-
-    (is (= (xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL")
+    (is (= (patiently seq #(xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL"))
            [{:xt/id "my_id"
              :my-string "my_string_value"
              :my-int16 42
@@ -66,21 +64,10 @@
          :payload {:_id "my_id"
                    :my_string_1 "my_new_string_value_1"}}))
 
-    (Thread/sleep 10000)
-
-    (is (= (set (xt/q *xtdb-conn* "SELECT * FROM my_table FOR VALID_TIME ALL"))
+    (is (= (set (patiently #(= (count %) 2)
+                  #(xt/q *xtdb-conn* "SELECT * FROM my_table FOR VALID_TIME ALL")))
            (set [{:xt/id "my_id", :my-string-1 "my_old_string_value_1", :my-string-2 "my_old_string_value_2"}
                  {:xt/id "my_id", :my-string-1 "my_new_string_value_1", :my-string-2 "my_old_string_value_2"}])))))
-
-(defn await-readings-result []
-  (let [timeout 5000]
-    (Thread/sleep timeout)
-    (let [results (xt/q *xtdb-conn* "SELECT *, _valid_from FROM readings FOR VALID_TIME ALL")]
-      (when (empty? results)
-        (println (.getLogs fixture/connect)))
-      (->> results
-        (map #(rename-keys % {:xt/id :_id
-                              :xt/valid-from :_valid_from}))))))
 
 (def avro-test-elements
   (mapv #(zipmap [:avro-type :xtdb-type :col-value :col-name] %)
@@ -139,13 +126,10 @@
                  (->avro-record avro-schema data)
                  {:value-serializer :avro
                   :schema-id schema-id})]
-      (println "send resp" resp)
-      (await-readings-result)
+
+      (patiently seq #(xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL"))
+
       (is (= (query-col-types *xtdb-conn* "my_table")
              (into {}
                    (for [elem avro-test-elements]
-                     {(:col-name elem) (:xtdb-type elem)}))))
-
-      (do
-        (def my-results (xt/q *xtdb-conn* "FROM my_table"))
-        (println "row is" my-results)))))
+                     {(:col-name elem) (:xtdb-type elem)})))))))

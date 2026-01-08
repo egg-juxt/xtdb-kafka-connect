@@ -4,7 +4,7 @@
             [jsonista.core :as json]
             [xtdb.api :as xt]
             [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]]
-            [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record]]))
+            [xtdb.kafka.connect.test.util :refer [query-col-types ->avro-record patiently]]))
 
 (use-fixtures :once fixture/with-containers)
 (use-fixtures :each fixture/with-xtdb-conn)
@@ -29,9 +29,7 @@
                    :my_timestamptz "2020-01-01T00:00:00Z"
                    :_valid_from "2020-01-02T00:00:00Z"}}))
 
-    (Thread/sleep 10000)
-
-    (is (= (xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL")
+    (is (= (patiently seq #(xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL"))
            [{:xt/id "my_id"
              :my-string "my_string_value"
              :my-int16 42
@@ -64,13 +62,7 @@
              {:value.converter.schema.registry.url (fixture/schema-registry-base-url-for-containers)}))))
 
 (defn await-readings-result []
-  (Thread/sleep 3000)
-  (let [results (xt/q *xtdb-conn* "SELECT *, _valid_from FROM readings FOR VALID_TIME ALL")]
-    (when (empty? results)
-      (println (.getLogs fixture/connect)))
-    (->> results
-      (map #(rename-keys % {:xt/id :_id
-                            :xt/valid-from :_valid_from})))))
+  (patiently seq #(xt/q *xtdb-conn* "SELECT *, _valid_from FROM readings FOR VALID_TIME ALL")))
 
 (def basic-example-conf
   {:tasks.max "1"

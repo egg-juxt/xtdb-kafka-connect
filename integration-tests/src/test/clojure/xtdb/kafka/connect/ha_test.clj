@@ -3,7 +3,8 @@
             [jsonista.core :as json]
             [next.jdbc :as jdbc]
             [xtdb.api :as xt]
-            [xtdb.kafka.connect.test.containers-fixture :as fixture]))
+            [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]]
+            [xtdb.kafka.connect.test.util :refer [patiently]]))
 
 (use-fixtures :once fixture/with-containers)
 (use-fixtures :each fixture/with-xtdb-conn)
@@ -38,8 +39,8 @@
           (fixture/send-record! table-name
             (or (:_id v) "none")
             (json/write-value-as-string v)))
-        (Thread/sleep 2000)
-        (let [dlq-records (fixture/list-dlq)]
+        (let [dlq-records (patiently #(>= (count %) 2)
+                            #(fixture/list-dlq))]
           (is (= 2 (count dlq-records)))
           (is (= value-sql-exception (-> dlq-records (first) (.value) (json/read-value json/keyword-keys-object-mapper))))
           (is (= value-record-data-exception (-> dlq-records (second) (.value) (json/read-value json/keyword-keys-object-mapper))))
@@ -89,14 +90,6 @@
 
       (Thread/sleep 50000))))
 
-(defn patiently [f]
-  (let [end-time (+ (System/currentTimeMillis) 10000)]
-    (while (and (not (try
-                       (f)
-                       (catch Throwable _)))
-                (<= (System/currentTimeMillis) end-time))
-      (Thread/sleep 2000))))
-
 (deftest record_sent_while_xtdb_is_down_is_inserted_when_xtdb_is_up_again
   (with-open [_ (fixture/with-connector
                   {:topics "my_table"
@@ -112,12 +105,10 @@
                     :fields [{:field :_id, :type "string", :optional false}]}
            :payload {:_id "1"}}))
 
-      (Thread/sleep 5000)
+      (patiently seq #(xt/q *xtdb-conn* "SELECT * FROM my_table"))
 
       (fixture/stop-xtdb!)
       (println "XTDB stopped")
-
-      (Thread/sleep 1000)
 
       (fixture/send-record! "my_table" "2"
         (json/write-value-as-string
@@ -126,18 +117,16 @@
            :payload {:_id "2"}}))
       (println "record sent")
 
-      (Thread/sleep 30000)
+      (Thread/sleep 15000)
 
       (println "XTDB starting...")
       (fixture/start-xtdb!)
       (println "XTDB started")
 
-      (patiently #(with-open [xtdb-conn2 (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
-                    (seq (xt/q xtdb-conn2 "SELECT * FROM my_table"))))
-
-      (with-open [xtdb-conn2 (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
-        (is (= #{{:xt/id "2"}} ; record 1 is not there because the XTDB container has been restarted, thus resetting its contents
-               (set (xt/q xtdb-conn2 "SELECT * FROM my_table")))))
+      (is (= #{{:xt/id "2"}} ; record 1 is not there because the XTDB container has been restarted, thus resetting its contents
+             (set (patiently seq
+                    #(with-open [conn (jdbc/get-connection (fixture/xtdb-jdbc-url-on-host))]
+                       (xt/q conn "SELECT * FROM my_table"))))))
 
       (finally
         (fixture/start-xtdb!)))))
