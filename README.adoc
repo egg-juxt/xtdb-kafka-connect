@@ -357,10 +357,37 @@ The XTDB Kakfa Connector uses SLF4J for logging. All its logging is confined to 
 The TRACE level can be enabled for further detail, but beware that it will output record data to the logs.
 ====
 
-== Development
+== For developers
 
-Gradle tasks for:
+=== Publishing
 
-REPL:: Use top project REPL `:xtdb:clojureRepl`
+This project publishes 2 packages to Github Releases:
 
-Generate JAR file:: `:xtdb:kafka-connect:`
+- An Uber-JAR that can be included by Kafka Connect by using the `plugin.path` option. (Gradle task: `:shadowJar`)
+- A ZIP package that can be installed as a Confluent Component. (Gradle task: `:archive`)
+
+You will need a Github token with release-publishing permissions. For convenience, store it in your `~/.gradle/gradle.properties` file:
+
+[source]
+----
+github.token=...
+----
+
+In order to publish a new version:
+
+1. Increment the `version` property inside `gradle.properties`
+2. Push `main` to Github. This version will be tagged with the version.
+3. Run Gradle tasks for the 2 packages above: `:shadowJar` and `:archive`.
+4. Run Gradle task for publishing: `:githubRelease`
+
+If something goes wrong, you can delete the release in Github and publish again.
+
+=== Tests
+
+There is a dedicated subproject for `integration-tests`. This could allow using a Java version different from the one used for compiling the main Connector project. (This was needed at some point).
+
+All tests can be run with Gradle task `test`.
+
+=== Clojure REPL
+
+You can run Gradle tasks `:clojureRepl` and `:integration-tests:clojureRepl`, depending on your needs.
