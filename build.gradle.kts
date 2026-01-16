@@ -107,6 +107,12 @@ tasks.register<Zip>("archive") {
             from(configurations.runtimeClasspath)
         }
 
+        into("doc") {
+            from(layout.projectDirectory) {
+                include("LICENSE", "README.md")
+            }
+        }
+
         from(layout.projectDirectory.dir("src/dist")) {
             exclude("manifest.json")
         }
@@ -120,16 +126,13 @@ githubRelease {
     repo = "xtdb-kafka-connect"
 
     tagName = "v${project.version}"
-    releaseName = "Uber-JAR v${project.version}"
-    body = "Automated release for version ${project.version}."
+    releaseName = "Deployment packages for v${project.version}"
+    body = "Deploy using the Uber-JAR (`*-all.jar`) or the Confluent Component Archive (`*.zip`)"
 
-    releaseAssets = files(tasks.shadowJar.get().archiveFile.get().asFile, tasks["archive"])
+    releaseAssets.from(tasks.shadowJar, tasks.named("archive"))
 
-    // This task will depend on shadowJar to ensure the file exists before uploading.
-    tasks.register("createGithubRelease") {
-        dependsOn(tasks.shadowJar)
-        dependsOn(tasks["archive"])
-    }
+    // uncomment for testing:
+//    dryRun.set(true)
 }
 
 
