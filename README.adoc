@@ -2,7 +2,7 @@
 :toc-levels: 4
 :toc-placement!:
 
-= XTDB Plugin for Kafka Connect
+= XTDB Kafka Sink Connector
 
 This plugin for Kafka Connect allows for ingestion of data into XTDB.
 
@@ -276,6 +276,12 @@ When records are retried to be ingested individually, any errors found will be r
 
 == Reference
 
+=== Version compatibility notes
+
+XTDB version 2.1 or higher is recommended.
+
+This connector integrates through the Kafka Connect API version 3.9.1.
+
 === XTDB Sink Connector
 
 Ingests Kafka records into XTDB tables.
@@ -356,6 +362,9 @@ The XTDB Kakfa Connector uses SLF4J for logging. All its logging is confined to 
 ====
 The TRACE level can be enabled for further detail, but beware that it will output record data to the logs.
 ====
+
+For XTDB logging configuration, refer to the XTDB documentation on https://docs.xtdb.com/ops/troubleshooting.html[troubleshooting].
+
 
 == For developers
 

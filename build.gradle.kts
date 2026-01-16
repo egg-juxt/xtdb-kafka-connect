@@ -39,7 +39,7 @@ dependencies {
     implementation("org.clojure", "tools.logging", "1.3.0")
     implementation("com.github.seancorfield", "next.jdbc", "1.3.1048")
     implementation("cheshire", "cheshire", "5.13.0")
-    implementation("com.xtdb", "xtdb-api", "2.0.0")
+    implementation("com.xtdb", "xtdb-api", "2.1.0")
     implementation("com.zaxxer", "HikariCP", "7.0.2")
     testCompileOnly("org.postgresql", "postgresql", "42.7.5")
 
