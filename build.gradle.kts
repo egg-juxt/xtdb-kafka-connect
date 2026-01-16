@@ -30,7 +30,7 @@ repositories {
 java {
     toolchain {
         // Java 17 is the minimum version for dev.clojurephant:jovial from maven!
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
 }
 
@@ -89,7 +89,7 @@ tasks.register<Copy>("manifest") {
         "owner" to inputs.properties["componentOwner"],
         "name" to inputs.properties["componentName"],
         "version" to inputs.properties["componentVersion"]
-    )  { escapeBackslash = true }
+    )  { escapeBackslash.set(true) }
 
     into(layout.buildDirectory.dir("tmp/manifest"))
 }
@@ -97,9 +97,9 @@ tasks.register<Copy>("manifest") {
 tasks.register<Zip>("archive") {
     group = "component hub"
 
-    destinationDirectory = layout.buildDirectory.dir("dist")
+    destinationDirectory.set(layout.buildDirectory.dir("dist"))
     val archiveName = "$componentOwner-$componentName-$version"
-    archiveFileName = "$archiveName.zip"
+    archiveFileName.set("$archiveName.zip")
 
     into(archiveName) {
         into("lib") {
@@ -122,12 +122,12 @@ tasks.register<Zip>("archive") {
 
 githubRelease {
     token(properties["github.token"] as String)
-    owner = "egg-juxt"
-    repo = "xtdb-kafka-connect"
+    owner.set("egg-juxt")
+    repo.set("xtdb-kafka-connect")
 
-    tagName = "v${project.version}"
-    releaseName = "Deployment packages for v${project.version}"
-    body = "Deploy using the Uber-JAR (`*-all.jar`) or the Confluent Component Archive (`*.zip`)"
+    tagName.set("v${project.version}")
+    releaseName.set("Deployment packages for v${project.version}")
+    body.set("Deploy using the Uber-JAR (`*-all.jar`) or the Confluent Component Archive (`*.zip`)")
 
     releaseAssets.from(tasks.shadowJar, tasks.named("archive"))
 
