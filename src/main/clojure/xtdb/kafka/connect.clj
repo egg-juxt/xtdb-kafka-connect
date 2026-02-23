@@ -45,20 +45,6 @@
       (and (instance? Struct value) schema)
       (struct->edn value)
 
-      (and (instance? Map value)
-           (nil? schema)
-           (= #{"payload" "schema"} (set (keys value))))
-      (let [payload (.get ^Map value "payload")]
-        (cond
-          (string? payload)
-          (json/parse-string payload true)
-
-          (instance? Map payload)
-          (map->edn payload)
-
-          :else
-          (throw (IllegalArgumentException. (str "Unknown JSON payload type: " record)))))
-
       (instance? Map value)
       (map->edn value)
 
