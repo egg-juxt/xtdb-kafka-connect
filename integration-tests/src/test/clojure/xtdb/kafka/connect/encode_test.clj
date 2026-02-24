@@ -1,6 +1,7 @@
 (ns xtdb.kafka.connect.encode-test
-  (:require [clojure.test :refer :all]
-            [clojure.set :refer [rename-keys]]
+  (:require [clojure.set :refer [rename-keys]]
+            [clojure.string :as str]
+            [clojure.test :refer :all]
             [jsonista.core :as json]
             [xtdb.api :as xt]
             [xtdb.kafka.connect.test.containers-fixture :as fixture :refer [*xtdb-conn*]]
@@ -11,6 +12,9 @@
 
 (use-fixtures :once fixture/with-containers)
 (use-fixtures :each fixture/with-xtdb-conn)
+
+(comment
+  (fixture/reload-connector!))
 
 (deftest ingest_all_types_with_in-band_connect-schema
   (with-open [_ (fixture/with-connector
@@ -69,6 +73,83 @@
            (set [{:xt/id "my_id", :my-string-1 "my_old_string_value_1", :my-string-2 "my_old_string_value_2"}
                  {:xt/id "my_id", :my-string-1 "my_new_string_value_1", :my-string-2 "my_old_string_value_2"}])))))
 
+(defn test_json-schema_types [conn-opts]
+  (let [test-cases
+        (mapv #(zipmap [:json-type :xtdb-type :col-value :col-name :q-value] %)
+          [[{:type "integer"} :i64 1 :_id]
+
+           ; Kafka Connect does not support: "null" type, unspecified type, "not" composition
+           ; primitive types
+           [{:type "boolean"} :bool true :bool_col]
+           [{:type "integer"} :i64 42 :int_col]
+           [{:type "number"} :f64 42 :num_col 42.0]
+           [{:type "string"} :utf8 "hey!" :string_col]
+
+           ; compositions
+           [{:oneOf [{:type "integer"} {:type "string"}]} :utf8 "hey!" :oneof_col1]
+           [{:oneOf [{:type "integer"} {:type "null"}]} [:? :null] nil :oneof_col2]
+
+           ; complex types
+           [{:type "array", :items {:type "string"}} [:list :utf8] ["hi", "bye"] :strings_col]
+           [{:type "object", :properties {:k1 {:type "integer"}}} [:struct {"k1" :i64}] {"k1" 1} :obj_col {:k1 1}]
+
+           ; connect types
+           [{:type "string", :connect.type "bytes"} :varbinary "Kg==" :bytes_col] ; base64
+           [{:type "integer", :title "org.apache.kafka.connect.data.Date"} [:date :day] 20507 :date_col #xt/date"2026-02-23"] ; days since epoch
+           [{:type "integer", :title "org.apache.kafka.connect.data.Time"} [:time-local :nano] 60000 :time_col #xt/time"00:01"] ; millis in day
+           [{:type "integer", :title "org.apache.kafka.connect.data.Timestamp"} :instant 1771891200000 :timestamp_col #xt/zdt"2026-02-24T00:00Z[UTC]"] ; millis since epoch
+           [{:type "integer", :title "org.apache.kafka.connect.data.Decimal"} [:decimal 32 0 128] 10 :decimal_col 10M]])
+
+        schema-id (fixture/register-schema! {:subject "my_table-value"
+                                             :schema-type :json
+                                             :schema {:type "object"
+                                                      :properties (into {}
+                                                                    (for [c test-cases]
+                                                                      [(:col-name c) (:json-type c)]))
+                                                      :required (map :col-name test-cases)}})]
+    (with-open [_ (fixture/with-connector (merge {:topics "my_table"
+                                                  :value.converter "io.confluent.connect.json.JsonSchemaConverter"
+                                                  :value.converter.connect.meta.data "true"
+                                                  :value.converter.schemas.enable "true"
+                                                  :value.converter.schema.registry.url (fixture/schema-registry-base-url-for-containers)
+                                                  ; See https://docs.confluent.io/cloud/current/connectors/reference/connector-configuration.html
+                                                  :transforms "xtdbEncode"
+                                                  :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"}
+                                                 conn-opts))]
+      (fixture/send-record! "my_table" "1"
+        (into {}
+          (for [elem test-cases]
+            [(name (:col-name elem)) (:col-value elem)]))
+        {:value-serializer :json-schema
+         :schema-id schema-id})
+
+      (let [q-result (first (patiently seq #(xt/q *xtdb-conn* "SELECT * FROM my_table")))
+            bs (:bytes-col q-result)]
+        (is (bytes? bs))
+        (is (= (count bs) 1))
+        (is (= (aget bs 0) 42))
+
+        (is (= (-> q-result
+                 (dissoc :bytes-col))
+               (-> (into {}
+                     (->> (for [c test-cases]
+                            [(:col-name c) (or (:q-value c) (:col-value c))])
+                       (filter (fn [[_ v]] (some? v)))))
+                 (update-keys #(-> % name (str/replace "_" "-") keyword))
+                 (rename-keys {:-id :xt/id})
+                 (dissoc :bytes-col)))))
+
+      (is (= (query-col-types *xtdb-conn* "my_table")
+             (into {}
+               (for [c test-cases]
+                 {(:col-name c) (:xtdb-type c)})))))))
+
+(deftest test_json-schema_types_with_default_sum_type
+  (test_json-schema_types {}))
+
+(deftest test_json-schema_types_with_generalized_sum_type
+  (test_json-schema_types {:value.converter.generalized.sum.type.support "true"}))
+
 (def avro-test-elements
   (mapv #(zipmap [:avro-type :xtdb-type :col-value :col-name] %)
     [["long" :i64 1 :_id]
@@ -85,15 +166,15 @@
      ; Avro complex types
      [{:type "array", :items "string"} [:list :utf8] ["hi", "bye"] :strings_col]
      [{:type "array", :items "int"} [:list :i32] [1 2 3] :ints_col]
-     [{:type "map", :values "string"} [:struct {'k1 :utf8, 'k2 :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
+     [{:type "map", :values "string"} [:struct {"k1" :utf8} {"k2" :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
      (let [record-schema {:type "record"
                           :name "MyRecord"
                           :fields [{:name "k1", :type "int"}
                                    {:name "k2", :type "string"}]}]
-       [record-schema [:struct {'k1 :i32, 'k2 :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
+       [record-schema [:struct {"k1" :i32} {"k2" :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
 
      ; logical types
-     [{:type "long", :logicalType "timestamp-millis"} [:timestamp-tz :micro "UTC"] (System/currentTimeMillis) :timestamp_col]
+     [{:type "long", :logicalType "timestamp-millis"} :instant (System/currentTimeMillis) :timestamp_col]
      (let [local-date (LocalDate/of 2025 10 1)
            day-count (-> ChronoUnit/DAYS (.between (LocalDate/of 1970 1 1) local-date))]
        [{:type "int", :logicalType "date"} [:date :day] day-count :date_col])

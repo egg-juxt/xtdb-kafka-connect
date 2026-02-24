@@ -45,6 +45,7 @@ dependencies {
 
     compileOnly("org.apache.kafka",  "connect-api", "3.9.1")
     testImplementation("org.apache.kafka",  "connect-api", "3.9.1")
+    devRuntimeOnly("io.confluent", "kafka-connect-json-schema-converter", "8.0.1") // for reference only
 
     testRuntimeOnly("dev.clojurephant", "jovial", "0.4.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")

@@ -1,5 +1,6 @@
 (ns xtdb.kafka.connect.encode-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.set :refer [rename-keys]]
+            [clojure.test :refer :all]
             [xtdb.api :as xt]
             [xtdb.kafka.connect.encode :as encode]
             [xtdb.kafka.connect.test.util :refer [->sink-record ->struct query-col-types]]
@@ -62,7 +63,7 @@
     (xt/execute-tx xtdb/*conn* [[:put-docs :my-table (-> encoded-record
                                                        .value
                                                        (update-keys keyword)
-                                                       (clojure.set/rename-keys {:_id :xt/id}))]])
+                                                       (rename-keys {:_id :xt/id}))]])
     (is (= (query-col-types xtdb/*conn* "my_table")
            {:_id :utf8
 

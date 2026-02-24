@@ -4,8 +4,8 @@
             [cognitect.transit :as transit]
             [xtdb.kafka.connect.util :refer [clone-connect-record]])
   (:import (com.cognitect.transit TaggedValue)
-           (java.time ZoneId)
-           (java.util List)
+           (java.time LocalDate LocalTime ZoneId)
+           (java.util Date List)
            (org.apache.kafka.connect.connector ConnectRecord)
            (org.apache.kafka.connect.data Field Schema Schema$Type Struct)))
 
@@ -31,15 +31,29 @@
 
       nil)
 
-    (and (-> schema .name (= org.apache.kafka.connect.data.Date/LOGICAL_NAME))
-         (instance? java.util.Date data))
-    (-> data .toInstant (.atZone (ZoneId/of "UTC")) .toLocalDate)))
+    (instance? Date data)
+    (condp = (.name schema)
+      org.apache.kafka.connect.data.Date/LOGICAL_NAME (LocalDate/ofInstant (.toInstant data) (ZoneId/of "UTC"))
+      org.apache.kafka.connect.data.Time/LOGICAL_NAME (LocalTime/ofNanoOfDay (-> ^Date data .getTime (* 1000000)))
+      nil)))
 
 (defn encode-by-schema* [^Schema schema, data, path]
   (try
     (cond
       (nil? schema)
       data
+
+      ; JSON Schema sum types
+      (and (-> schema .type (= Schema$Type/STRUCT))
+           (or (-> schema .name (= "io.confluent.connect.json.OneOf")) ; default way
+               (-> schema .parameters (contains? "org.apache.kafka.connect.data.Union")))) ; "generalized" way
+      (if-not (instance? Struct data)
+        (throw (IllegalArgumentException. (str "expected Struct, received " (type data))))
+        (if-let [^Field field (first (filter #(some? (.get data %)) (.fields schema)))]
+          (encode-by-schema* (.schema field)
+                             (.get data field)
+                             (conj path (.name field)))
+          nil))
 
       (-> schema .type (= Schema$Type/STRUCT))
       (if-not (instance? Struct data)
@@ -79,18 +93,18 @@
       (let [encoded (or (?encode-by-xtdb-type schema data)
                         (?encode-by-simple-type schema data)
                         data)]
-        (log/trace "encoding simple data type" {:path path
-                                                :value data
-                                                :type (type data)
-                                                :schema-type (-> schema .type .name)
-                                                :schema-name (.name schema)
-                                                :schema-parameters (.parameters schema)
-                                                :encoded (if (instance? TaggedValue encoded)
-                                                           {:tag (.getTag encoded)
-                                                            :rep (.getRep encoded)
-                                                            :type-rep (type (.getRep encoded))}
-                                                           {:type (type encoded)
-                                                            :value encoded})})
+        (log/trace "encoded simple data type" {:path path
+                                               :value data
+                                               :type (type data)
+                                               :schema-type (-> schema .type .name)
+                                               :schema-name (.name schema)
+                                               :schema-parameters (.parameters schema)
+                                               :encoded (if (instance? TaggedValue encoded)
+                                                          {:tag (.getTag encoded)
+                                                           :rep (.getRep encoded)
+                                                           :type-rep (type (.getRep encoded))}
+                                                          {:type (type encoded)
+                                                           :value encoded})})
         encoded))
 
     (catch Exception e
