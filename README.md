@@ -337,9 +337,8 @@ github.token=...
 To publish a new version:
 
 1.  Increment the `version` property inside `gradle.properties`.
-2.  Push `main` to Github. This version will be tagged with the version.
-3.  Run Gradle tasks for the 2 packages above: `:shadowJar` and `:archive`.
-4.  Run the Gradle task for publishing: `:githubRelease`.
+2.  Push `main` to Github. Last commit will be tagged with the version.
+3.  Run the `:githubRelease` Gradle task for publishing (this should run `:shadowJar` and `:archive` as dependencies).
 
 If something goes wrong, you can delete the release in Github and publish again.
 
