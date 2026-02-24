@@ -58,24 +58,21 @@
       (-> schema .type (= Schema$Type/STRUCT))
       (if-not (instance? Struct data)
         (throw (IllegalArgumentException. (str "expected Struct, received " (type data))))
-        (reduce
-          (fn [m ^Field field]
-            (assoc m (.name field) (encode-by-schema* (.schema field)
-                                                      (.get data field)
-                                                      (conj path (.name field)))))
-          {}
-          (.fields schema)))
+        (into {}
+          (for [^Field field (.fields schema)]
+            [(.name field) (encode-by-schema* (.schema field)
+                                              (.get data field)
+                                              (conj path (.name field)))])))
 
       (-> schema .type (= Schema$Type/MAP))
       (if-not (or (instance? java.util.Map data)
                   (map? data))
         (throw (IllegalArgumentException. (str "expected Map, received " (type data))))
-        (->> data
-             (map (fn [[k v]]
-                    (let [subpath (conj path (name k))]
-                      [(encode-by-schema* (.keySchema schema) k subpath)
-                       (encode-by-schema* (.valueSchema schema) v subpath)])))
-             (into {})))
+        (into {}
+              (for [[k v] data
+                    :let [subpath (conj path (name k))]]
+                [(encode-by-schema* (.keySchema schema) k subpath)
+                 (encode-by-schema* (.valueSchema schema) v subpath)])))
 
       (-> schema .type (= Schema$Type/ARRAY))
       (if-not (or (sequential? data)

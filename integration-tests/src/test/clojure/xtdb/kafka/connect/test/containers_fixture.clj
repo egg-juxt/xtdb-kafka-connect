@@ -40,7 +40,6 @@
     (.withCommand ^"[Ljava.lang.String;" (into-array ^String ["playground"]))
     (.withNetwork Network/SHARED)
     (.withExposedPorts (into-array [(int 5432)]))))
-    ;(.withReuse true)))
 
 (defstate ^{:on-reload :noop} xtdb
   :start (doto xtdb-container-conf .start)

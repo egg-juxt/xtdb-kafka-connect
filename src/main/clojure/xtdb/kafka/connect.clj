@@ -1,88 +1,70 @@
 (ns xtdb.kafka.connect
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [clojure.tools.logging :as log]
             [next.jdbc :as jdbc]
             [xtdb.kafka.connect.util :refer [sinkRecord-original-offset]])
   (:import (clojure.lang Atom ExceptionInfo)
            (java.sql SQLException SQLTransientConnectionException)
            [java.util Collection List Map]
-           [org.apache.kafka.connect.data Field Schema Struct]
+           [org.apache.kafka.connect.data Field Struct]
            org.apache.kafka.connect.sink.SinkRecord
            (org.apache.kafka.connect.errors RetriableException)
            (org.apache.kafka.connect.sink SinkTaskContext)
            (xtdb.kafka.connect XtdbSinkConfig)))
 
-(defn- map->edn [m]
-  (->> (for [[k v] m]
-         [(keyword k)
-          (if (instance? Map v)
-            (map->edn v)
-            v)])
-       (into {})))
-
-(defn- get-struct-contents [val]
+(defn- data->clj [data]
   (cond
-    (instance? Struct val)
-    (let [struct-schema (.schema ^Struct val)
-          struct-fields (.fields ^Schema struct-schema)]
-      (reduce conj
-              (map (fn [^Field field] {(keyword (.name field)) (get-struct-contents (.get ^Struct val field))})
-                   struct-fields)))
-    (instance? List val) (into [] (map get-struct-contents val))
-    (instance? Map val) (zipmap (map keyword (.keySet ^Map val)) (map get-struct-contents (.values ^Map val)))
-    :else val))
+    (instance? Struct data)
+    (into {}
+      (for [^Field field (-> ^Struct data .schema .fields)]
+        [(.name field) (data->clj (.get ^Struct data field))]))
 
-(defn- struct->edn [^Struct s]
-  (let [output-map (get-struct-contents s)]
-    (log/trace "map val: " output-map)
-    output-map))
+    (instance? Map data)
+    (into {}
+      (for [[k v] data]
+        [(data->clj k) (data->clj v)]))
 
-(defn- record->edn [^SinkRecord record]
-  (let [schema (.valueSchema record)
-        value (.value record)]
-    (cond
-      (and (instance? Struct value) schema)
-      (struct->edn value)
+    (or (sequential? data)
+        (instance? List data))
+    (mapv data->clj data)
 
-      (instance? Map value)
-      (map->edn value)
+    :else data))
 
-      (string? value)
-      (json/parse-string value true)
+(defn- record->clj [^SinkRecord record]
+  (let [data (.value record)]
+    (when-not (or (instance? Struct data)
+                  (instance? Map data))
+      (throw (IllegalArgumentException. (str "Unacceptable record value type: " (type record)))))
 
-      :else
-      (throw (IllegalArgumentException. (str "Unknown message type: " record))))))
+    (data->clj data)))
+
+(defn get-xt-id [m]
+  (or (get m :xt/id)
+      (get m :_id)
+      (get m "_id")))
 
 (defn- find-record-key-eid [^XtdbSinkConfig _conf, ^SinkRecord record]
   (let [r-key (.key record)]
     (cond
-      (nil? r-key)
-      (throw (IllegalArgumentException. "no record key"))
+      (or (instance? Struct r-key)
+          (instance? Map r-key))
+      (if-some [id (-> r-key data->clj get-xt-id)]
+        id
+        (throw (IllegalArgumentException. "no `_id` field in record key")))
 
-      (nil? (.keySchema record))
-      (throw (IllegalArgumentException. "no record key schema"))
-
-      (-> record .keySchema .type .isPrimitive)
-      r-key
-
-      (instance? Struct r-key)
-      (or (-> r-key struct->edn :_id)
-          (throw (IllegalArgumentException. "no id field in record key")))
-
-      (map? r-key)
-      (or (-> r-key :_id)
-          (throw (IllegalArgumentException. "no id field in record key"))))))
+      :else
+      r-key)))
 
 (defn- find-record-value-eid [^XtdbSinkConfig _conf, ^SinkRecord _record, doc]
-  (if-some [id (:_id doc)]
+  (if-some [id (get-xt-id doc)]
     id
-    (throw (IllegalArgumentException. "no id field in record value"))))
+    (throw (IllegalArgumentException. "no `_id` field in record value"))))
 
-(defn- find-eid [^XtdbSinkConfig conf ^SinkRecord record doc]
-  (case (.getIdMode conf)
-    "record_key" (find-record-key-eid conf record)
-    "record_value" (find-record-value-eid conf record doc)))
+(defn- assoc-xt-id [doc id]
+  (cond
+    (contains? doc :xt/id) (assoc doc :xt/id id)
+    (contains? doc :_id) (assoc doc :_id id)
+    :else (assoc doc "_id" id)))
 
 (defn- tombstone? [^SinkRecord record]
   (and (nil? (.value record)) (.key record)))
@@ -94,16 +76,21 @@
 
 (defn record->op [^XtdbSinkConfig conf, ^SinkRecord record]
   (log/trace "sink record:" record)
-  (let [table (table-name conf record)]
+  (let [table (table-name conf record)
+        id-mode (.getIdMode conf)]
     (doto (cond
             (not (tombstone? record))
-            (let [doc (record->edn record)
-                  id (find-eid conf record doc)]
+            (let [doc (record->clj record)
+                  id (case id-mode
+                       "record_key" (find-record-key-eid conf record)
+                       "record_value" (find-record-value-eid conf record doc))]
               {:op (case (.getInsertMode conf)
                      "insert" :insert
                      "patch" :patch)
                :table table
-               :params [(assoc doc :_id id)]})
+               :params [(case id-mode
+                          "record_key" (assoc-xt-id doc id)
+                          "record_value" doc)]})
 
             (= "record_key" (.getIdMode conf))
             (let [id (find-record-key-eid conf record)]
@@ -115,12 +102,11 @@
 
       (->> (log/trace "tx op:")))))
 
-(defn submit-sink-records* [^SinkTaskContext context
-                            connectable
+(defn submit-sink-records* [connectable
                             ^XtdbSinkConfig conf
                             records]
   (when (seq records)
-    (let [record-ops (doall ; Find any record issues now
+    (let [record-ops (doall ; Find any record data issues now
                        (for [record records]
                          (try
                            (merge {:record record}
@@ -177,7 +163,7 @@
                 (log/error cause "Submitting in batches failed. Trying to submit single records...")
                 (doseq [record records]
                   (try
-                    (submit-sink-records* context connectable conf [record])
+                    (submit-sink-records* connectable conf [record])
                     (catch Exception e
                       ; Do not retry at this point, as some records may have moved to the dlq already.
                       (cond
@@ -195,7 +181,7 @@
 
     (let [dec-retries? (atom false)]
       (try
-        (submit-sink-records* context connectable conf records)
+        (submit-sink-records* connectable conf records)
         (catch Exception e
           (cond
             (= ::record-data-error (-> e ex-data :type))
