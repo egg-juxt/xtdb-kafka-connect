@@ -150,67 +150,68 @@
 (deftest test_json-schema_types_with_generalized_sum_type
   (test_json-schema_types {:value.converter.generalized.sum.type.support "true"}))
 
-(def avro-test-elements
-  (mapv #(zipmap [:avro-type :xtdb-type :col-value :col-name] %)
-    [["long" :i64 1 :_id]
-
-     ; Avro primitive types
-     ["boolean" :bool true :bool_col]
-     ["int" :i32 42 :int_col]
-     ["long" :i64 42 :long_col]
-     ["float" :f32 42 :float_col]
-     ["double" :f64 42 :double_col]
-     ["bytes" :varbinary (ByteBuffer/wrap (byte-array [1 2 3])) :bytes_col]
-     ["string" :utf8 "hey!" :string_col]
-
-     ; Avro complex types
-     [{:type "array", :items "string"} [:list :utf8] ["hi", "bye"] :strings_col]
-     [{:type "array", :items "int"} [:list :i32] [1 2 3] :ints_col]
-     [{:type "map", :values "string"} [:struct {"k1" :utf8} {"k2" :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
-     (let [record-schema {:type "record"
-                          :name "MyRecord"
-                          :fields [{:name "k1", :type "int"}
-                                   {:name "k2", :type "string"}]}]
-       [record-schema [:struct {"k1" :i32} {"k2" :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
-
-     ; logical types
-     [{:type "long", :logicalType "timestamp-millis"} :instant (System/currentTimeMillis) :timestamp_col]
-     (let [local-date (LocalDate/of 2025 10 1)
-           day-count (-> ChronoUnit/DAYS (.between (LocalDate/of 1970 1 1) local-date))]
-       [{:type "int", :logicalType "date"} [:date :day] day-count :date_col])
-
-     ; explicit xtdb type
-     [{:type "string", :connect.parameters {:xtdb.type "interval"}} [:interval :month-day-micro] "P1DT1H" :xtdb_interval_col]
-
-     ,]))
-
 (deftest test_avro_types
-  (with-open [_ (fixture/with-connector {:topics "my_table"
-                                         :value.converter "io.confluent.connect.avro.AvroConverter"
-                                         :value.converter.schemas.enable "true"
-                                         :value.converter.connect.meta.data "true"
-                                         :value.converter.schema.registry.url (fixture/schema-registry-base-url-for-containers)
-                                         :transforms "xtdbEncode"
-                                         :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"})]
-    (let [avro-schema {:type "record"
-                       :name "Reading"
-                       :fields (vec (for [elem avro-test-elements]
-                                      {:name (:col-name elem)
-                                       :type (:avro-type elem)}))}
-          schema-id (fixture/register-schema! {:subject "my_table-value"
-                                               :schema-type :avro
-                                               :schema avro-schema})
-          data (into {}
-                     (for [elem avro-test-elements]
-                       {(:col-name elem) (:col-value elem)}))
-          resp (fixture/send-record! "my_table" "1"
-                 (->avro-record avro-schema data)
-                 {:value-serializer :avro
-                  :schema-id schema-id})]
+  (let [avro-test-elements
+        (mapv #(zipmap [:avro-type :xtdb-type :col-value :col-name] %)
+          [["long" :i64 1 :_id]
 
-      (patiently seq #(xt/q *xtdb-conn* "SELECT *, _valid_from FROM my_table FOR VALID_TIME ALL"))
+           ; Avro primitive types
+           ["boolean" :bool true :bool_col]
+           ["int" :i32 42 :int_col]
+           ["long" :i64 42 :long_col]
+           ["float" :f32 42 :float_col]
+           ["double" :f64 42 :double_col]
+           ["bytes" :varbinary (ByteBuffer/wrap (byte-array [1 2 3])) :bytes_col]
+           ["string" :utf8 "hey!" :string_col]
+
+           ; Avro complex types
+           [{:type "array", :items "string"} [:list :utf8] ["hi", "bye"] :strings_col]
+           [{:type "array", :items "int"} [:list :i32] [1 2 3] :ints_col]
+           [{:type "map", :values "string"} [:struct {"k1" :utf8} {"k2" :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
+           (let [record-schema {:type "record"
+                                :name "MyRecord"
+                                :fields [{:name "k1", :type "int"}
+                                         {:name "k2", :type "string"}]}]
+             [record-schema [:struct {"k1" :i32} {"k2" :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
+           (let [bytes-for-12345 (ByteBuffer/wrap (byte-array [(quot 12345 256) (rem 12345 256)]))]
+             [{:type "bytes", :logicalType "decimal", :precision 10, :scale 2} [:decimal 32 2 128] bytes-for-12345 :decimal_col])
+
+           ; logical types
+           [{:type "int", :logicalType "time-millis"} [:time-local :nano] (int (* 1 60 60 1000)) :time_col] ; millis in day
+           [{:type "long", :logicalType "timestamp-millis"} :instant (System/currentTimeMillis) :timestamp_col]
+           (let [local-date (LocalDate/of 2025 10 1)
+                 day-count (-> ChronoUnit/DAYS (.between (LocalDate/of 1970 1 1) local-date))]
+             [{:type "int", :logicalType "date"} [:date :day] day-count :date_col])
+
+           ; explicit xtdb type
+           [{:type "string", :connect.parameters {:xtdb.type "interval"}} [:interval :month-day-micro] "P1DT1H" :xtdb_interval_col]])
+
+        avro-schema {:type "record"
+                     :name "Reading"
+                     :fields (vec (for [elem avro-test-elements]
+                                    {:name (:col-name elem)
+                                     :type (:avro-type elem)}))}
+        schema-id (fixture/register-schema! {:subject "my_table-value"
+                                             :schema-type :avro
+                                             :schema avro-schema})
+        data (into {}
+               (for [elem avro-test-elements]
+                 {(:col-name elem) (:col-value elem)}))]
+    (with-open [_ (fixture/with-connector {:topics "my_table"
+                                           :value.converter "io.confluent.connect.avro.AvroConverter"
+                                           :value.converter.schemas.enable "true"
+                                           :value.converter.connect.meta.data "true"
+                                           :value.converter.schema.registry.url (fixture/schema-registry-base-url-for-containers)
+                                           :transforms "xtdbEncode"
+                                           :transforms.xtdbEncode.type "xtdb.kafka.connect.SchemaDrivenXtdbEncoder"})]
+      (fixture/send-record! "my_table" "1"
+        (->avro-record avro-schema data)
+        {:value-serializer :avro
+         :schema-id schema-id})
+
+      (patiently seq #(xt/q *xtdb-conn* "SELECT * FROM my_table"))
 
       (is (= (query-col-types *xtdb-conn* "my_table")
              (into {}
-                   (for [elem avro-test-elements]
-                     {(:col-name elem) (:xtdb-type elem)})))))))
+               (for [elem avro-test-elements]
+                 {(:col-name elem) (:xtdb-type elem)})))))))
