@@ -17,7 +17,7 @@ dependencies {
     testImplementation("hato", "hato", "1.0.0")
     testImplementation("metosin", "jsonista", "0.3.3")
 
-    testImplementation("com.xtdb", "xtdb-api", "2.0.0")
+    testImplementation("com.xtdb", "xtdb-api", "2.2.0-beta1")
     testImplementation("org.postgresql", "postgresql", "42.7.5")
 
     testImplementation("io.confluent", "kafka-json-schema-serializer", "7.6.6")

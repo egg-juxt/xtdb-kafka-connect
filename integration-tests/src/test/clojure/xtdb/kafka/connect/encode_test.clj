@@ -87,7 +87,7 @@
 
            ; compositions
            [{:oneOf [{:type "integer"} {:type "string"}]} :utf8 "hey!" :oneof_col1]
-           [{:oneOf [{:type "integer"} {:type "null"}]} [:? :null] nil :oneof_col2]
+           [{:oneOf [{:type "integer"} {:type "null"}]} :null nil :oneof_col2]
 
            ; complex types
            [{:type "array", :items {:type "string"}} [:list :utf8] ["hi", "bye"] :strings_col]
@@ -167,12 +167,12 @@
            ; Avro complex types
            [{:type "array", :items "string"} [:list :utf8] ["hi", "bye"] :strings_col]
            [{:type "array", :items "int"} [:list :i32] [1 2 3] :ints_col]
-           [{:type "map", :values "string"} [:struct {"k1" :utf8} {"k2" :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
+           [{:type "map", :values "string"} [:struct {"k1" :utf8, "k2" :utf8}] {"k1" "v1", "k2" "v2"} :string_map_col]
            (let [record-schema {:type "record"
                                 :name "MyRecord"
                                 :fields [{:name "k1", :type "int"}
                                          {:name "k2", :type "string"}]}]
-             [record-schema [:struct {"k1" :i32} {"k2" :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
+             [record-schema [:struct {"k1" :i32, "k2" :utf8}] (->avro-record record-schema {"k1" 1, "k2" "v2"}) :record_col])
            (let [bytes-for-12345 (ByteBuffer/wrap (byte-array [(quot 12345 256) (rem 12345 256)]))]
              [{:type "bytes", :logicalType "decimal", :precision 10, :scale 2} [:decimal 32 2 128] bytes-for-12345 :decimal_col])
 

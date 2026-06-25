@@ -35,7 +35,7 @@
     (reduce-kv c m)))
 
 (def ^GenericContainer xtdb-container-conf
-  (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.1.0")
+  (doto (GenericContainer. "ghcr.io/xtdb/xtdb:2.2.0-beta1")
     (.withEnv "XTDB_LOGGING_LEVEL" "debug")
     (.withCommand ^"[Ljava.lang.String;" (into-array ^String ["playground"]))
     (.withNetwork Network/SHARED)
