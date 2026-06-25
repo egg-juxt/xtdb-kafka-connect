@@ -32,6 +32,8 @@ class XtdbSinkTask : SinkTask(), AutoCloseable {
 
         dataSource = HikariDataSource().apply {
             jdbcUrl = config.connectionUrl
+            config.connectionUser.takeIf { it.isNotBlank() }?.let { username = it }
+            config.connectionPassword.value().takeIf { it.isNotBlank() }?.let { password = it }
             poolName = "XtdbSinkTask-single-connection"
             maximumPoolSize = 1
             minimumIdle = 0

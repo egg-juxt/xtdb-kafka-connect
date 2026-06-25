@@ -4,10 +4,14 @@ import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.config.ConfigDef.*
 import org.apache.kafka.common.config.ConfigDef.Type.INT
+import org.apache.kafka.common.config.ConfigDef.Type.PASSWORD
 import org.apache.kafka.common.config.ConfigDef.Type.STRING
 import org.apache.kafka.common.config.ConfigException
+import org.apache.kafka.common.config.types.Password
 
 internal const val CONNECTION_URL_CONFIG: String = "connection.url"
+internal const val CONNECTION_USER_CONFIG: String = "connection.user"
+internal const val CONNECTION_PASSWORD_CONFIG: String = "connection.password"
 internal const val INSERT_MODE_CONFIG: String = "insert.mode"
 internal const val ID_MODE_CONFIG: String = "id.mode"
 internal const val TABLE_NAME_FORMAT_CONFIG: String = "table.name.format"
@@ -61,6 +65,14 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
         "JDBC URL of XTDB server."
     )
     .define(
+        CONNECTION_USER_CONFIG, STRING, "", Importance.HIGH,
+        "Username for the XTDB connection."
+    )
+    .define(
+        CONNECTION_PASSWORD_CONFIG, PASSWORD, "", Importance.HIGH,
+        "Password for the XTDB connection. Hidden from logs."
+    )
+    .define(
         INSERT_MODE_CONFIG, STRING, "insert",
         EnumValidator(setOf("insert", "patch")), Importance.HIGH,
         "The insertion mode to use. Supported modes are ``insert`` and ``patch``."
@@ -90,6 +102,9 @@ internal val CONFIG_DEF: ConfigDef = ConfigDef()
 
 data class XtdbSinkConfig(
     val connectionUrl: String,
+    val connectionUser: String,
+    // Kept as a Password (not a raw String) so the value stays masked in any logging of this config.
+    val connectionPassword: Password,
     val insertMode: String,
     val idMode: String,
     val tableNameFormat: String,
@@ -104,6 +119,8 @@ data class XtdbSinkConfig(
 
             return XtdbSinkConfig(
                 connectionUrl = parsedConfig.getString(CONNECTION_URL_CONFIG),
+                connectionUser = parsedConfig.getString(CONNECTION_USER_CONFIG),
+                connectionPassword = parsedConfig.getPassword(CONNECTION_PASSWORD_CONFIG),
                 insertMode = parsedConfig.getString(INSERT_MODE_CONFIG),
                 idMode = parsedConfig.getString(ID_MODE_CONFIG),
                 tableNameFormat = parsedConfig.getString(TABLE_NAME_FORMAT_CONFIG),
