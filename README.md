@@ -267,6 +267,12 @@ Configuration options:
 `connection.url`
 : **Required**. Must point to XTDB's PostgreSQL-compatible port. <br> Example: `"jdbc:xtdb://my_host:5432/xtdb"`
 
+`connection.user`
+: Username for the XTDB connection. Prefer this over embedding credentials in `connection.url`.
+
+`connection.password`
+: Password for the XTDB connection. Prefer this over embedding credentials in `connection.url`: its value is hidden from logs (Kafka Connect masks `password`-typed options).
+
 `insert.mode`
 : The insertion mode to use. Supported modes are: <br> `insert`: (default) <br> `patch`: An upsert by id. Fields with a NULL value are kept unchanged, rather than set to NULL.
 
