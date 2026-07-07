@@ -124,7 +124,7 @@ tasks.register<Zip>("archive") {
 }
 
 githubRelease {
-    token(properties["github.token"] as String)
+    token(properties["github.token"] as? String)
     owner.set("egg-juxt")
     repo.set("xtdb-kafka-connect")
 
